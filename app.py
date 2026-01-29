@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 
-# 1. 強制設定深色主題與網頁配置
+# 1. 網頁配置
 st.set_page_config(page_title="WorkGuard 許可證監控", layout="wide")
 
 # 2. 讀取資料
@@ -18,57 +18,63 @@ def load_data():
 df = load_data()
 today = datetime.now()
 
-# 3. 數據清理與狀態判斷
-df_valid = df.dropna(subset=['到期日期']).copy()
-
+# 3. 狀態計算邏輯
+df_valid = df.copy()
 def get_status(date):
-    if date < today:
-        return '🚨 已逾期'
-    elif date <= today + pd.Timedelta(days=180):
-        return '🟡 展延預警'
-    else:
-        return '✅ 正常'
+    if pd.isnull(date): return '⚪ 未填寫'
+    if date < today: return '🚨 已逾期'
+    elif date <= today + pd.Timedelta(days=180): return '🟡 展延預警'
+    else: return '✅ 正常'
 
 df_valid['狀態'] = df_valid['到期日期'].apply(get_status)
 
-# 4. 頂部標題
+# 4. 頂部 KPI
 st.title("🛡️ WorkGuard 許可證智能監測中心")
 st.markdown("---")
 
-# 5. KPI 卡片
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("監控總數", len(df))
-c2.metric("嚴重警告", len(df_valid[df_valid['狀態'] == '🚨 已逾期']))
-c3.metric("近期需辦理", len(df_valid[df_valid['狀態'] == '🟡 展延預警']))
+c2.metric("嚴重警告 (已逾期)", len(df_valid[df_valid['狀態'] == '🚨 已逾期']))
+c3.metric("展延預警", len(df_valid[df_valid['狀態'] == '🟡 展延預警']))
 c4.metric("系統狀態", "線上運行中")
 
-# 6. 中間區塊：圖表與清單
+# 5. 重點：互動篩選功能
 st.write("##")
-left_col, right_col = st.columns([1, 2])
+left_col, right_col = st.columns([1, 2.5])
 
 with left_col:
-    st.write("#### ⚖️ 證照狀態分佈")
-    # 修正後的繪圖代碼
-    fig = px.pie(
-        df_valid, 
-        names='狀態', 
-        hole=0.6,
-        color='狀態',
-        color_discrete_map={'✅ 正常': '#00cc96', '🟡 展延預警': '#f39c12', '🚨 已逾期': '#ef553b'}
-    )
-    fig.update_layout(
-        showlegend=True, 
-        paper_bgcolor='rgba(0,0,0,0)', 
-        plot_bgcolor='rgba(0,0,0,0)', 
-        font_color="white",
-        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
-    )
+    st.write("#### ⚖️ 狀態統計")
+    # 畫圖
+    fig = px.pie(df_valid, names='狀態', hole=0.6, color='狀態',
+                 color_discrete_map={'✅ 正常': '#00cc96', '🟡 展延預警': '#f39c12', '🚨 已逾期': '#ef553b', '⚪ 未填寫': '#808080'})
     st.plotly_chart(fig, use_container_width=True)
+    
+    # 這裡就是你要的「點選」功能：下拉選單篩選
+    status_filter = st.multiselect(
+        "🔍 篩選特定狀態的證照：",
+        options=['🚨 已逾期', '🟡 展延預警', '✅ 正常', '⚪ 未填寫'],
+        default=['🚨 已逾期', '🟡 展延預警'] # 預設直接幫你挑出有問題的
+    )
 
 with right_col:
     st.write("#### 📋 許可證詳細清單")
-    df_show = df.copy()
-    df_show['到期日期'] = df_show['到期日期'].dt.strftime('%Y-%m-%d').fillna("未填寫")
-    st.dataframe(df_show, use_container_width=True, height=400)
+    
+    # 根據篩選器過濾資料
+    df_filtered = df_valid[df_valid['狀態'].isin(status_filter)]
+    
+    # 格式化顯示
+    df_display = df_filtered.copy()
+    df_display['到期日期'] = df_display['到期日期'].dt.strftime('%Y-%m-%d').fillna("未填寫")
+    
+    # 使用表格顯示，並加上顏色標註
+    st.dataframe(
+        df_display.style.map(
+            lambda x: 'color: #ef553b; font-weight: bold;' if x == '🚨 已逾期' else '', subset=['狀態']
+        ).map(
+            lambda x: 'color: #f39c12;' if x == '🟡 展延預警' else '', subset=['狀態']
+        ),
+        use_container_width=True,
+        height=500
+    )
 
-st.success("✅ 數據已與 Google Sheets 同步更新")
+st.success("✅ 數據已即時同步。您可以透過左側選單切換要查看的證照類別。")
