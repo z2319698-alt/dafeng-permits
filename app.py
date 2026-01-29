@@ -28,7 +28,7 @@ DETAIL_DATABASE = {
         },
         "變更": {
             "說明": "⚙️ 增加車輛、地址變更或更換負責人時辦理。",
-            "應備附件": ["變更申請書", "車輛證明", "保險單"]
+            "應備附件": ["變更申請表", "車輛證明", "保險單"]
         },
         "變更暨展延": {
             "說明": "🛠️ 於到期前需進行變更時，可一併提交展延申請，省去重複作業。",
@@ -63,15 +63,57 @@ try:
     with st.sidebar:
         st.header("📂 系統導航")
         type_list = sorted(df['許可證類型'].unique().tolist())
-        selected_type = st.selectbox("許可證類型", type_list)
+        selected_type = st.selectbox("1️⃣ 許可證類型", type_list)
         st.divider()
         sub_df = df[df['許可證類型'] == selected_type]
         if not sub_df.empty:
-            selected_permit = st.radio("大豐許可證", sub_df['許可證名稱'].tolist())
+            selected_permit = st.radio("2️⃣ 大豐許可證", sub_df['許可證名稱'].tolist())
         else:
             selected_permit = None
 
     # 6. 右側主畫面
     if selected_permit:
         info = df[df['許可證名稱'] == selected_permit].iloc[0]
-        st.title(f"📄 {selected_permit
+        st.title(f"📄 {selected_permit}")
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("到期日", info['到期日期'].strftime('%Y-%m-%d') if pd.notnull(info['到期日期']) else "未填寫")
+        days_left = (info['到期日期']-today).days if pd.notnull(info['到期日期']) else None
+        c2.metric("剩餘天數", f"{days_left} 天" if days_left is not None else "N/A")
+        c3.metric("管理類型", info['許可證類型'])
+
+        st.markdown("---")
+        
+        # 7. 辦理項目指引
+        st.subheader("🛠️ 申請辦理指引與附件檢查")
+        law_content = str(info['關聯法規'])
+        
+        matched_key = None
+        if "廢棄物" in law_content:
+            matched_key = "廢棄物"
+        elif "清除" in law_content:
+            matched_key = "清除許可"
+        
+        if matched_key:
+            actions = DETAIL_DATABASE[matched_key]
+            cols = st.columns(len(actions))
+            for i, action_name in enumerate(actions.keys()):
+                if cols[i].button(action_name, key=f"btn_{action_name}", use_container_width=True, type="primary"):
+                    st.session_state.current_data = actions[action_name]
+                    st.session_state.current_action_name = action_name
+
+            if "current_data" in st.session_state:
+                st.write(f"### 📍 項目：{st.session_state.current_action_name}")
+                st.success(st.session_state.current_data['說明'])
+                st.write("📋 **應備附件檢查表：**")
+                for item in st.session_state.current_data['應備附件']:
+                    st.checkbox(item, key=f"chk_{selected_permit}_{st.session_state.current_action_name}_{item}")
+        else:
+            st.info("💡 此類別目前僅供監控，暫無預設指引。")
+    
+    st.divider()
+    with st.expander("📊 查看原始數據總表"):
+        st.dataframe(df, use_container_width=True)
+
+except Exception as e:
+    st.error(f"⚠️ 程式啟動失敗，請聯繫管理員。錯誤內容: {e}")
