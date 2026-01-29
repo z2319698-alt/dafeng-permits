@@ -48,11 +48,12 @@ def load_data():
         df['許可證類型'] = "未分類"
     return df
 
+# 4. 程式主邏輯
 try:
     df = load_data()
     today = datetime.now()
 
-    # 4. 頂部警報跑馬燈
+    # 頂部警報跑馬燈
     urgent = df[(df['到期日期'] <= today + pd.Timedelta(days=180)) & (df['到期日期'].notnull())]
     if not urgent.empty:
         alert_text = "　　".join([f"🚨 {row['許可證名稱']} (剩 {(row['到期日期']-today).days} 天)" for _, row in urgent.iterrows()])
@@ -64,3 +65,13 @@ try:
         type_list = sorted(df['許可證類型'].unique().tolist())
         selected_type = st.selectbox("許可證類型", type_list)
         st.divider()
+        sub_df = df[df['許可證類型'] == selected_type]
+        if not sub_df.empty:
+            selected_permit = st.radio("大豐許可證", sub_df['許可證名稱'].tolist())
+        else:
+            selected_permit = None
+
+    # 6. 右側主畫面
+    if selected_permit:
+        info = df[df['許可證名稱'] == selected_permit].iloc[0]
+        st.title(f"📄 {selected_permit
