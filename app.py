@@ -5,7 +5,7 @@ from datetime import datetime
 # 1. 網頁配置
 st.set_page_config(page_title="大豐許可證管理系統", layout="wide")
 
-# 2. 精準法規動作與附件資料庫 (已補齊您要求的異動、變更暨展延)
+# 2. 精準法規動作資料庫 (補齊異動、變更暨展延)
 DETAIL_DATABASE = {
     "廢棄物": {
         "展延": {
@@ -44,9 +44,8 @@ sheet_url = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwb
 def load_data():
     df = pd.read_excel(sheet_url, sheet_name='大豐既有許可證到期提醒')
     df['到期日期'] = pd.to_datetime(df['到期日期'], errors='coerce')
-    # 確保分類欄位存在
     if '許可證類型' not in df.columns:
-        df['許可證類型'] = "未定義類型"
+        df['許可證類型'] = "未分類"
     return df
 
 try:
@@ -68,7 +67,10 @@ try:
         st.divider()
         
         sub_df = df[df['許可證類型'] == selected_type]
-        selected_permit = st.radio("大豐許可證", sub_df['許可證名稱'].tolist())
+        if not sub_df.empty:
+            selected_permit = st.radio("大豐許可證", sub_df['許可證名稱'].tolist())
+        else:
+            selected_permit = None
 
     # 6. 右側主畫面
     if selected_permit:
@@ -76,18 +78,4 @@ try:
         st.title(f"📄 {selected_permit}")
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("到期日", info['到期日期'].strftime('%Y-%m-%d') if pd.notnull(info['到期日期']) else "未填寫")
-        days_left = (info['到期日期']-today).days if pd.notnull(info['到期日期']) else None
-        c2.metric("剩餘天數", f"{days_left} 天" if days_left is not None else "N/A")
-        c3.metric("管理類型", info['許可證類型'])
-
-        st.markdown("---")
-        
-        # 7. 辦理項目指引
-        st.subheader("🛠️ 申請辦理指引與附件檢查")
-        law_content = str(info['關聯法規'])
-        
-        # 匹配邏輯
-        matched_key = None
-        if "廢棄物" in law_content: matched_key = "廢棄物"
-        elif "清除"
+        c1.metric("到期日", info
