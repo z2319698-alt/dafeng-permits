@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime as dt
 
-st.set_page_config(page_title="大豐管理系統", layout="wide")
+st.set_page_config(page_title="大豐管理", layout="wide")
 
-# 1. 辦理項目資料庫
+# 1. 附件資料庫
 DB = {
     "清理計畫": {
         "展延": ["清理計畫書(更新版)", "廢棄物合約影本", "負責人身分證影本"],
@@ -31,10 +31,14 @@ try:
     df = load()
     now = dt.now()
 
-    # 2. 跑馬燈警報
+    # 2. 警報跑馬燈 (拆解字串避免截斷)
     urg = df[(df['到期日期'] <= now + pd.Timedelta(days=180)) & (df['到期日期'].notnull())]
     if not urg.empty:
-        txt = "　".join([f"🚨 {r['許可證名稱']}(剩{(r['到期日期']-now).days}天)" for _,r in urg.iterrows()])
+        items = []
+        for _, r in urg.iterrows():
+            d = (r['到期日期'] - now).days
+            items.append(f"🚨 {r['許可證名稱']}(剩{d}天)")
+        txt = "  ".join(items)
         st.markdown(f'<marquee style="color:white;background:#ff4b4b;padding:8px;border-radius:5px;">{txt}</marquee>', unsafe_allow_html=True)
 
     # 3. 側邊導航
@@ -44,29 +48,22 @@ try:
         sel_t = st.selectbox("1.類型", t_list)
         st.divider()
         sub = df[df['許可證類型'] == sel_t]
-        sel_p = st.radio("2.許可證名稱", sub['許可證名稱'].tolist()) if not sub.empty else None
+        sel_p = st.radio("2.名稱", sub['許可證名稱'].tolist()) if not sub.empty else None
 
     # 4. 主畫面
     if sel_p:
         row = df[df['許可證名稱'] == sel_p].iloc[0]
-        st.title(f"📄 {sel_p}")
+        st.title(sel_p)
         
         c1, c2, c3 = st.columns(3)
         d = row['到期日期']
-        c1.metric("到期日", d.strftime('%Y-%m-%d') if pd.notnull(d) else "未填")
-        rem = (d - now).days if pd.notnull(d) else None
-        c2.metric("剩餘天數", f"{rem}天" if rem is not None else "N/A")
+        val_d = d.strftime('%Y-%m-%d') if pd.notnull(d) else "未填"
+        c1.metric("到期日", val_d)
+        
+        rem = (d - now).days if pd.notnull(d) else "N/A"
+        c2.metric("剩餘天數", f"{rem}天")
         c3.metric("類型", row['許可證類型'])
 
         st.divider()
-        st.subheader("🛠️ 辦理指引")
         
-        # 匹配邏輯
-        acts = None
-        if "清除" in str(sel_p): acts = DB["清除許可"]
-        elif "清理" in str(sel_p) or "計畫" in str(sel_p): acts = DB["清理計畫"]
-
-        if acts:
-            btns = st.columns(len(acts))
-            for i, a_name in enumerate(acts.keys()):
-                if btns[i].button(a_name, key=f"b_{sel_p}_{a_name}", use_container
+        # 5. 辦
