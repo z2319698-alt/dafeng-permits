@@ -5,7 +5,7 @@ from datetime import datetime
 # 1. 網頁配置
 st.set_page_config(page_title="大豐許可證管理系統", layout="wide")
 
-# 2. 精準法規動作資料庫 (補齊異動、變更暨展延)
+# 2. 精準法規動作資料庫
 DETAIL_DATABASE = {
     "廢棄物": {
         "展延": {
@@ -58,24 +58,9 @@ try:
         alert_text = "　　".join([f"🚨 {row['許可證名稱']} (剩 {(row['到期日期']-today).days} 天)" for _, row in urgent.iterrows()])
         st.markdown(f'<div style="background:#ff4b4b;color:white;padding:10px;border-radius:5px;"><marquee scrollamount="6">{alert_text}</marquee></div>', unsafe_allow_html=True)
 
-    # 5. 左側導航 (第一層：類型，第二層：名稱)
+    # 5. 左側導航
     with st.sidebar:
         st.header("📂 系統導航")
         type_list = sorted(df['許可證類型'].unique().tolist())
         selected_type = st.selectbox("許可證類型", type_list)
-        
         st.divider()
-        
-        sub_df = df[df['許可證類型'] == selected_type]
-        if not sub_df.empty:
-            selected_permit = st.radio("大豐許可證", sub_df['許可證名稱'].tolist())
-        else:
-            selected_permit = None
-
-    # 6. 右側主畫面
-    if selected_permit:
-        info = df[df['許可證名稱'] == selected_permit].iloc[0]
-        st.title(f"📄 {selected_permit}")
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("到期日", info
