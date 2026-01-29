@@ -40,4 +40,52 @@ with st.sidebar:
     st.header("📂 系統導航")
     
     # 第一層：直接抓 Excel 裡的「許可證類型」
-    type_list = sorted(df['許可證類型
+    type_list = sorted(df['許可證類型'].unique().tolist())
+    selected_type = st.selectbox("許可證類型", type_list)
+    
+    st.divider()
+    
+    # 第二層：根據所選類型，抓取對應的「許可證名稱」
+    sub_df = df[df['許可證類型'] == selected_type]
+    selected_permit = st.radio("大豐許可證", sub_df['許可證名稱'].tolist())
+
+# 6. 右側主畫面
+if selected_permit:
+    info = df[df['許可證名稱'] == selected_permit].iloc[0]
+    st.title(f"📄 {selected_permit}")
+    
+    # 指標看板
+    c1, c2, c3 = st.columns(3)
+    c1.metric("到期日", info['到期日期'].strftime('%Y-%m-%d') if pd.notnull(info['到期日期']) else "未填寫")
+    days_left = (info['到期日期']-today).days if pd.notnull(info['到期日期']) else None
+    c2.metric("剩餘天數", f"{days_left} 天" if days_left is not None else "N/A")
+    c3.metric("目前狀態", info['狀態'] if '狀態' in df.columns else "監控中")
+
+    st.markdown("---")
+    
+    # 動作按鈕區 (根據關聯法規內容匹配指引)
+    st.subheader("💡 辦理項目指引")
+    law_content = str(info['關聯法規'])
+    
+    # 尋找匹配的法規指引
+    matched_actions = None
+    for key, actions in ACTION_DATABASE.items():
+        if key in law_content:
+            matched_actions = actions
+            break
+            
+    if matched_actions:
+        cols = st.columns(len(matched_actions))
+        for i, (act_name, act_note) in enumerate(matched_actions.items()):
+            if cols[i].button(act_name, use_container_width=True, type="primary"):
+                st.info(f"### 【{act_name}】辦理重點\n\n{act_note}")
+    else:
+        st.info("此類別暫無預設指引，請依個案法規辦理。")
+
+else:
+    st.title("🛡️ 大豐環境許可證監控系統")
+    st.info("👈 請從左側選擇許可證類型開始。")
+
+# 7. 底部數據總表
+with st.expander("📊 查看原始數據總表"):
+    st.dataframe(df, use_container_width=True)
