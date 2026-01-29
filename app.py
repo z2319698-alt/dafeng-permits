@@ -20,64 +20,56 @@ DB = {
 
 URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=xlsx"
 
-# 2. 讀取
+# 2. 讀取與欄位安全偵測
 df = pd.read_excel(URL, sheet_name=0)
+
+# 預設變數防止 NameError
+c_dt, c_tp, c_nm = None, None, None
+
 for c in df.columns:
-    if "日期" in str(c): c_dt = c
-    if "類型" in str(c): c_tp = c
-    if "名稱" in str(c): c_nm = c
+    col_str = str(c)
+    if "日期" in col_str: c_dt = c
+    if "類型" in col_str: c_tp = c
+    if "名稱" in col_str: c_nm = c
 
+# 檢查關鍵欄位是否存在
+if not c_dt or not c_nm:
+    st.error("❌ Excel 欄位對應失敗！")
+    st.write("程式找不到包含 '日期' 或 '名稱' 的欄位。")
+    st.write("目前 Excel 內的欄位有：", list(df.columns))
+    st.stop()
+
+# 3. 資料處理
 df['D'] = pd.to_datetime(df[c_dt], errors='coerce')
-df['T'] = df[c_tp].fillna("NA")
+df['T'] = df[c_tp].fillna("未分類") if c_tp else "未分類"
 
-# 3. 側邊選單
-st.sidebar.header("選單")
+# 4. 側邊選單
+st.sidebar.header("📂 導航選單")
 t_list = sorted(df['T'].unique().tolist())
-s_t = st.sidebar.selectbox("1.類型", t_list)
+s_t = st.sidebar.selectbox("1. 選擇類型", t_list)
 sub = df[df['T'] == s_t]
-s_p = st.sidebar.radio("2.名稱", sub[c_nm].tolist())
+s_p = st.sidebar.radio("2. 選擇許可證名稱", sub[c_nm].tolist())
 
-# 4. 主畫面 (移除縮進以防截斷)
-if not s_p:
-    st.stop()
+# 5. 主畫面內容
+if s_p:
+    row = sub[sub[c_nm] == s_p].iloc[0]
+    st.title(s_p)
 
-row = sub[sub[c_nm] == s_p].iloc[0]
-st.title(s_p)
+    # 顯示日期
+    d_obj = row['D']
+    d_str = d_obj.strftime('%Y-%m-%d') if pd.notnull(d_obj) else "未填寫"
+    st.write("📅 **到期日期：**", d_str)
 
-# 顯示日期
-d_obj = row['D']
-d_str = "未填"
-if pd.notnull(d_obj):
-    d_str = d_obj.strftime('%Y-%m-%d')
-st.write("📅 到期日:", d_str)
+    # 匹配按鈕邏輯
+    acts = None
+    if "清除" in str(s_p):
+        acts = DB["C"]
+    elif "清理" in str(s_p) or "計畫" in str(s_p):
+        acts = DB["P"]
 
-# 匹配附件清單
-acts = None
-if "清除" in str(s_p):
-    acts = DB["C"]
-if "清理" in str(s_p) or "計畫" in str(s_p):
-    acts = DB["P"]
-
-if not acts:
-    st.info("💡 暫無指引")
-    st.stop()
-
-st.divider()
-st.subheader("🛠️ 辦理項目")
-
-# 按鈕 (預先定義 key 避免截斷)
-for n in acts.keys():
-    k = "btn" + str(n) + str(s_p)
-    if st.button(n, key=k):
-        st.session_state["cur"] = n
-
-# 顯示內容
-cur = st.session_state.get("cur")
-if cur in acts:
-    st.success("📍 正在辦理：" + cur)
-    for f in acts[cur]:
-        ck = "ck" + str(f) + str(s_p) + str(cur)
-        st.checkbox(f, key=ck)
-
-st.divider()
-st.dataframe(df)
+    if acts:
+        st.divider()
+        st.subheader("🛠️ 辦理項目指引")
+        # 平鋪按鈕避免截斷
+        for n in acts.keys():
+            k
