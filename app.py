@@ -2,25 +2,31 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# 1. 網頁配置
-st.set_page_config(page_title="大豐許可證管理系統", layout="wide")
+# 1. 網頁高級感配置
+st.set_page_config(page_title="大豐許可證法規管理", layout="wide")
 
-# 2. 定義法規知識庫 (你可以根據實際需求修改這裡的文字)
+# 2. 定義法規大腦 (只要 Excel 裡的字有對到，就會顯示這些內容)
+# 這裡建議把 Excel 裡的長字簡化，比如 "水污染防治法第14條..." 簡化為 "水污染防治法"
 LAW_DATABASE = {
-    "水污染防治法": {
-        "展延需求": "應於期滿前 6 個月至 4 個月內申請展延。",
-        "異動需求": "負責人、基本資料變更應於 30 日內辦理；製程異動應於事前申請。",
-        "法條連結": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=O0040001"
-    },
     "空氣污染防制法": {
-        "展延需求": "應於有效期間屆滿前 3 至 6 個月內申請展延。",
-        "異動需求": "製程設備或規模變更，應重新申請核發設置許可證。",
-        "法條連結": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=O0020001"
+        "展延期限": "有效期限屆滿前 3 至 6 個月內",
+        "必備動作": "至空污系統提交展延申請，並檢查排放口監測設備是否需校正。",
+        "異動規定": "製程設備、操作參數變更前，應重新申請設置許可。"
+    },
+    "水污染防治法": {
+        "展延期限": "有效期限屆滿前 6 個月至 4 個月內",
+        "必備動作": "需委託合格檢測公司進行放流水採樣，並上傳水措計畫。",
+        "異動規定": "負責人變更於 30 日內辦理；製程異動應於事前申請。"
     },
     "廢棄物清理法": {
-        "展延需求": "依各地方環保局規定，通常為屆滿前 3 個月。",
-        "異動需求": "清理計畫書變更需於事實發生後 15-30 日內提出。",
-        "法條連結": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=O0050001"
+        "展延期限": "依各地方環保局規定，通常為屆滿前 2 至 3 個月",
+        "必備動作": "重新核算廢棄物產生量，更新清理計畫書 (IWR&MS)。",
+        "異動規定": "廢棄物種類增減需提前申請變更。"
+    },
+    "應回收登記證": {
+        "展延期限": "屆滿前 1 個月辦理換證",
+        "必備動作": "確認回收處理量與申報數據一致。",
+        "異動規定": "廠址或設備變更需重新辦理登記。"
     }
 }
 
@@ -35,43 +41,42 @@ def load_data():
 
 df = load_data()
 
-# 4. 主介面
-st.title("🛡️ 許可證管理與法規指引")
+# 4. 主視覺區
+st.title("🛡️ 許可證辦理指引系統")
+st.markdown("---")
 
-# 5. 互動選擇區
-st.info("💡 請從下方下拉選單選擇一個許可證，查看其法規辦理需求：")
+# 5. 互動式法規查找 (這就是你要的功能)
+st.subheader("🔍 選擇許可證以查看法規需求")
+selected_permit = st.selectbox("請選擇要查詢的許可證：", df['許可證名稱'].unique())
 
-# 讓使用者選一個許可證
-selected_permit = st.selectbox("請選擇許可證名稱：", df['許可證名稱'].unique())
+# 抓取該筆資料
+info = df[df['許可證名稱'] == selected_permit].iloc[0]
+law_name = str(info['關聯法規']) # 抓取 Excel 裡的關聯法規文字
 
-# 抓取該許可證的詳細資料
-permit_info = df[df['許可證名稱'] == selected_permit].iloc[0]
-
-# 顯示法規需求卡片
-col1, col2 = st.columns([1, 1])
+# 建立兩個卡片
+col1, col2 = st.columns([1, 1.2])
 
 with col1:
-    st.subheader(f"📋 證照基本資料")
-    st.write(f"**到期日期：** {permit_info['到期日期'].strftime('%Y-%m-%d') if pd.notnull(permit_info['到期日期']) else '未填寫'}")
-    st.write(f"**目前狀態：** {permit_info['備註'] if '備註' in df.columns else '監控中'}")
-    st.write(f"**負責人：** {permit_info['負責人信箱']}")
+    st.info(f"📋 **基本資訊**\n\n**到期日：** {info['到期日期'].strftime('%Y-%m-%d') if pd.notnull(info['到期日期']) else '未填寫'}\n\n**狀態：** {info['狀態'] if '狀態' in df.columns else '監控中'}")
 
 with col2:
-    st.subheader(f"⚖️ 法規辦理指引")
-    # 根據 Excel 裡的「關聯法規」欄位來對應知識庫
-    law_category = permit_info['關聯法規']
+    # 這裡做「關鍵字匹配」
+    matched_law = None
+    for key in LAW_DATABASE:
+        if key in law_name: # 只要 Excel 裡的字包含「水污染」等關鍵字就觸發
+            matched_law = LAW_DATABASE[key]
+            law_title = key
+            break
     
-    if law_category in LAW_DATABASE:
-        law = LAW_DATABASE[law_category]
-        st.warning(f"**【{law_category}】相關規定：**")
-        st.write(f"📌 **展延：** {law['展延需求']}")
-        st.write(f"⚙️ **異動/變更：** {law['異動需求']}")
-        st.link_button("查看完整法規連結", law['法規連結'])
+    if matched_law:
+        st.warning(f"⚖️ **{law_title} 辦理規定**")
+        st.write(f"📅 **展延辦理時間：** {matched_law['展延期限']}")
+        st.write(f"📝 **應辦事項：** {matched_law['必備動作']}")
+        st.write(f"🔄 **異動變更提醒：** {matched_law['異動規定']}")
     else:
-        st.write("⚠️ 尚未建立此法規的詳細指引，請洽環安室。")
+        st.write("❓ **法規資料補充中**")
+        st.caption(f"Excel 登記法規為：{law_name}，系統暫無對應 SOP。")
 
 st.divider()
-
-# 6. 原有的清單顯示
-st.subheader("📁 全量清單總覽")
-st.dataframe(df, use_container_width=True)
+st.subheader("📁 完整清單")
+st.dataframe(df, use
