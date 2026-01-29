@@ -1,12 +1,30 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 from datetime import datetime
 
 # 1. 網頁配置
-st.set_page_config(page_title="WorkGuard 許可證監控", layout="wide")
+st.set_page_config(page_title="大豐許可證管理系統", layout="wide")
 
-# 2. 讀取資料
+# 2. 定義法規知識庫 (你可以根據實際需求修改這裡的文字)
+LAW_DATABASE = {
+    "水污染防治法": {
+        "展延需求": "應於期滿前 6 個月至 4 個月內申請展延。",
+        "異動需求": "負責人、基本資料變更應於 30 日內辦理；製程異動應於事前申請。",
+        "法條連結": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=O0040001"
+    },
+    "空氣污染防制法": {
+        "展延需求": "應於有效期間屆滿前 3 至 6 個月內申請展延。",
+        "異動需求": "製程設備或規模變更，應重新申請核發設置許可證。",
+        "法條連結": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=O0020001"
+    },
+    "廢棄物清理法": {
+        "展延需求": "依各地方環保局規定，通常為屆滿前 3 個月。",
+        "異動需求": "清理計畫書變更需於事實發生後 15-30 日內提出。",
+        "法條連結": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=O0050001"
+    }
+}
+
+# 3. 讀取資料
 sheet_url = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=xlsx"
 
 @st.cache_data(ttl=60)
@@ -16,65 +34,44 @@ def load_data():
     return df
 
 df = load_data()
-today = datetime.now()
 
-# 3. 狀態計算邏輯
-df_valid = df.copy()
-def get_status(date):
-    if pd.isnull(date): return '⚪ 未填寫'
-    if date < today: return '🚨 已逾期'
-    elif date <= today + pd.Timedelta(days=180): return '🟡 展延預警'
-    else: return '✅ 正常'
+# 4. 主介面
+st.title("🛡️ 許可證管理與法規指引")
 
-df_valid['狀態'] = df_valid['到期日期'].apply(get_status)
+# 5. 互動選擇區
+st.info("💡 請從下方下拉選單選擇一個許可證，查看其法規辦理需求：")
 
-# 4. 頂部 KPI
-st.title("🛡️ WorkGuard 許可證智能監測中心")
-st.markdown("---")
+# 讓使用者選一個許可證
+selected_permit = st.selectbox("請選擇許可證名稱：", df['許可證名稱'].unique())
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("監控總數", len(df))
-c2.metric("嚴重警告 (已逾期)", len(df_valid[df_valid['狀態'] == '🚨 已逾期']))
-c3.metric("展延預警", len(df_valid[df_valid['狀態'] == '🟡 展延預警']))
-c4.metric("系統狀態", "線上運行中")
+# 抓取該許可證的詳細資料
+permit_info = df[df['許可證名稱'] == selected_permit].iloc[0]
 
-# 5. 重點：互動篩選功能
-st.write("##")
-left_col, right_col = st.columns([1, 2.5])
+# 顯示法規需求卡片
+col1, col2 = st.columns([1, 1])
 
-with left_col:
-    st.write("#### ⚖️ 狀態統計")
-    # 畫圖
-    fig = px.pie(df_valid, names='狀態', hole=0.6, color='狀態',
-                 color_discrete_map={'✅ 正常': '#00cc96', '🟡 展延預警': '#f39c12', '🚨 已逾期': '#ef553b', '⚪ 未填寫': '#808080'})
-    st.plotly_chart(fig, use_container_width=True)
+with col1:
+    st.subheader(f"📋 證照基本資料")
+    st.write(f"**到期日期：** {permit_info['到期日期'].strftime('%Y-%m-%d') if pd.notnull(permit_info['到期日期']) else '未填寫'}")
+    st.write(f"**目前狀態：** {permit_info['備註'] if '備註' in df.columns else '監控中'}")
+    st.write(f"**負責人：** {permit_info['負責人信箱']}")
+
+with col2:
+    st.subheader(f"⚖️ 法規辦理指引")
+    # 根據 Excel 裡的「關聯法規」欄位來對應知識庫
+    law_category = permit_info['關聯法規']
     
-    # 這裡就是你要的「點選」功能：下拉選單篩選
-    status_filter = st.multiselect(
-        "🔍 篩選特定狀態的證照：",
-        options=['🚨 已逾期', '🟡 展延預警', '✅ 正常', '⚪ 未填寫'],
-        default=['🚨 已逾期', '🟡 展延預警'] # 預設直接幫你挑出有問題的
-    )
+    if law_category in LAW_DATABASE:
+        law = LAW_DATABASE[law_category]
+        st.warning(f"**【{law_category}】相關規定：**")
+        st.write(f"📌 **展延：** {law['展延需求']}")
+        st.write(f"⚙️ **異動/變更：** {law['異動需求']}")
+        st.link_button("查看完整法規連結", law['法規連結'])
+    else:
+        st.write("⚠️ 尚未建立此法規的詳細指引，請洽環安室。")
 
-with right_col:
-    st.write("#### 📋 許可證詳細清單")
-    
-    # 根據篩選器過濾資料
-    df_filtered = df_valid[df_valid['狀態'].isin(status_filter)]
-    
-    # 格式化顯示
-    df_display = df_filtered.copy()
-    df_display['到期日期'] = df_display['到期日期'].dt.strftime('%Y-%m-%d').fillna("未填寫")
-    
-    # 使用表格顯示，並加上顏色標註
-    st.dataframe(
-        df_display.style.map(
-            lambda x: 'color: #ef553b; font-weight: bold;' if x == '🚨 已逾期' else '', subset=['狀態']
-        ).map(
-            lambda x: 'color: #f39c12;' if x == '🟡 展延預警' else '', subset=['狀態']
-        ),
-        use_container_width=True,
-        height=500
-    )
+st.divider()
 
-st.success("✅ 數據已即時同步。您可以透過左側選單切換要查看的證照類別。")
+# 6. 原有的清單顯示
+st.subheader("📁 全量清單總覽")
+st.dataframe(df, use_container_width=True)
