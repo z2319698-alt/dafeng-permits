@@ -1,63 +1,56 @@
 import streamlit as st
 import pandas as pd
 
-# 設定頁面寬度
+# 1. 頁面設定
 st.set_page_config(page_title="環保證照管理系統", layout="wide")
 
-# 固定連結與分頁名稱
+# 2. 資料連結
 URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=xlsx"
 SHEET_NAME = "大豐既有許可證到期提醒"
 
-@st.cache_data(show_spinner=False)
-def load_data():
-    # 讀取 Excel
+# --- 徹底放棄快取，確保標題日期秒更新 ---
+def load_data_fresh():
     df = pd.read_excel(URL, sheet_name=SHEET_NAME)
-    # 清理欄位空白
     df.columns = df.columns.astype(str).str.strip()
-    # 轉換日期格式 (針對 E 欄 到期日期)
-    if "到期日期" in df.columns:
-        df["到期日期"] = pd.to_datetime(df["到期日期"], errors="coerce")
     return df
 
 try:
-    df = load_data()
+    df = load_data_fresh()
 
-    # --- 1. 左側選單 (Sidebar) ---
+    # --- 側邊選單 (Sidebar) ---
     st.sidebar.markdown("## 📂 系統導覽")
     
     # 選擇類型
-    types = sorted(df["許可證類型"].dropna().unique().tolist())
-    sel_type = st.sidebar.selectbox("選擇類型", types)
+    t_list = sorted(df["許可證類型"].dropna().unique().tolist())
+    sel_type = st.sidebar.selectbox("選擇類型", t_list)
     
-    # 根據類型過濾資料
-    sub_df = df[df["許可證類型"] == sel_type].copy()
+    # 過濾資料
+    sub = df[df["許可證類型"] == sel_type].copy()
     
     # 選擇許可證名稱
-    names = sub_df["許可證名稱"].dropna().tolist()
-    sel_name = st.sidebar.radio("選擇許可證", names)
+    n_list = sub["許可證名稱"].dropna().tolist()
+    sel_name = st.sidebar.radio("選擇許可證", n_list)
 
-    # --- 2. 核心改動：直接抓取對應資料列 ---
-    # 根據左側選中的 sel_name，直接從 sub_df 抓出那一列
-    target_row = sub_df[sub_df["許可證名稱"] == sel_name].iloc[0]
+    # --- 🚀 關鍵核心：標題後面直接黏上日期 ---
+    # 從同一張表抓日期 (E 欄)
+    target_row = sub[sub["許可證名稱"] == sel_name].iloc[0]
+    raw_date = str(target_row["到期日期"])
     
-    # 格式化到期日期 (E 欄)
-    if pd.notna(target_row["到期日期"]):
-        date_str = target_row["到期日期"].strftime("%Y-%m-%d")
-    else:
-        date_str = "未設定"
+    # 清理日期文字 (只取 YYYY-MM-DD 部分)
+    clean_date = raw_date.split(" ")[0] if " " in raw_date else raw_date
 
-    # ✅ 你要的：在標題後面加上到期日期
-    # 呈現效果：📄 大豐全興廠空污操作許可 (2027-02-10)
-    st.title(f"📄 {sel_name} ({date_str})")
+    # ✅ 這是你要的：標題字串直接強行組合
+    # 顯示效果如：📄 大豐全興廠空污操作許可 (2027-02-10)
+    st.title(f"📄 {sel_name} ({clean_date})")
 
-    # --- 3. 標題下方副標題：呈現管制編號 ---
+    # --- 副標題：呈現管制編號 ---
     st.markdown(f"#### 管制編號：{target_row['管制編號']}")
     
     st.divider()
 
-    # --- 4. 數據總表 (展開後可看全表) ---
-    with st.expander("📊 數據總表", expanded=False):
-        st.dataframe(sub_df, use_container_width=True, hide_index=True)
+    # --- 數據總表 ---
+    with st.expander("📊 數據總表"):
+        st.dataframe(sub, use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"系統讀取失敗，錯誤原因：{e}")
+    st.error(f"讀取失敗：{e}")
