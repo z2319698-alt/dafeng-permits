@@ -19,7 +19,6 @@ def load_all_data():
         # 處理合併儲存格
         attach_df.iloc[:, 0] = attach_df.iloc[:, 0].ffill()
         attach_df.iloc[:, 1] = attach_df.iloc[:, 1].ffill()
-        # 全表去空格並轉字串
         attach_df = attach_df.applymap(lambda x: str(x).strip() if pd.notnull(x) else x)
             
     for n, df in all_sh.items():
@@ -47,7 +46,6 @@ try:
     sub = df[df[C_TYPE] == sel_t].reset_index(drop=True)
     sel_n = st.sidebar.radio("2. 選擇許可證", sub[C_NAME].tolist())
 
-    # 4. 主畫面顯示
     st.title(f"📄 {sel_n}")
     row_info = sub[sub[C_NAME] == sel_n].iloc[0]
     st.write(f"**目前效期：** {row_info[C_DATE]}")
@@ -72,7 +70,7 @@ try:
             st.markdown(f"### 📍 目前選擇項目：**{curr_act}**")
             target_rows = attach_db[(attach_db.iloc[:, 0] == sel_t) & (attach_db.iloc[:, 1] == curr_act)]
 
-            # --- 第一步：法規依據 (C 欄) - 恢復勾選功能 ---
+            # --- 第一步：法規依據 (C 欄) - 勾選功能 ---
             with st.expander("⚖️ 第一步：法規依據條件確認", expanded=True):
                 laws_in_excel = target_rows.iloc[:, 2].unique().tolist()
                 selected_conditions = []
@@ -85,14 +83,15 @@ try:
             with st.expander("👤 第二步：人員登錄", expanded=True):
                 u_name = st.text_input("辦理人姓名", key=f"un_{sel_n}")
                 
-            # --- 第三步：附件 (D 到 I 欄) - 根據第一步勾選連動 ---
+            # --- 第三步：附件 (D 到 I 欄) - 精準連動 ---
             if u_name:
                 st.markdown("---")
                 st.subheader("📂 第三步：應檢附附件清單")
                 
                 if selected_conditions:
-                    # 只抓取「被勾選的那幾列」的附件
+                    # 只抓取「第一步被勾選」的那幾列
                     matched_data = target_rows[target_rows.iloc[:, 2].isin(selected_conditions)]
+                    # 攤平 D 到 I 欄 (index 3-8)
                     files_flat = matched_data.iloc[:, 3:9].values.flatten()
                     final_files = list(dict.fromkeys([str(f).strip() for f in files_flat if pd.notnull(f) and str(f).lower() != 'nan' and str(f) != '']))
                     
@@ -111,9 +110,10 @@ try:
                             body_e = urllib.parse.quote(info)
                             st.markdown(f'<a href="mailto:andy.chen@df-recycle.com?subject={sub_e}&body={body_e}" style="background-color:#4CAF50;color:white;padding:12px;text-decoration:none;border-radius:5px;display:block;text-align:center;">📧 啟動郵件系統</a>', unsafe_allow_html=True)
                 else:
-                    st.info("請在第一步勾選辦理條件，系統將自動過濾出對應的附件清單。")
+                    st.info("請在第一步勾選辦理條件，系統將自動產生對應附件。")
     else:
-        st.info("此類型目前無須透過自主檢查表辦理。")
+        # 應回收、水污染等原始狀態回歸
+        st.info("目前此類型無須透過自主檢查表辦理。")
 
 except Exception as e:
     st.error(f"系統錯誤: {e}")
