@@ -18,7 +18,7 @@ def load_all_data():
 try:
     main_df, file_df = load_all_data()
 
-    # --- 3. 側邊選單 (第一、二層) ---
+    # --- 3. 側邊選單 ---
     st.sidebar.markdown("## 📂 系統導覽")
     sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
     sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
@@ -30,63 +30,70 @@ try:
     expiry_date = str(target_main.iloc[3])
     clean_date = expiry_date[:10] if expiry_date != 'nan' else "未設定"
 
-    # --- 5. 主畫面標題 ---
+    # --- 5. 主畫面呈現 ---
     st.title(f"📄 {sel_name}")
     st.info(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}")
     
     st.divider()
 
-    # --- 6. 🚀 第三層：複選辦理項目 (質感複選框) ---
+    # --- 6. 🚀 第三層：橫向按鈕 (複選模式) ---
     db_info = file_df[file_df.iloc[:, 0] == sel_type]
     options = db_info.iloc[:, 1].dropna().unique().tolist()
 
     if options:
-        st.subheader("🛠️ 請勾選辦理項目 (可多選)")
-        # 使用 multiselect 達成複選，且具有高質感標籤效果
-        selected_actions = st.multiselect("選取的項目：", options, default=None, placeholder="請選擇一項或多項辦理項目...")
+        st.subheader("🛠️ 請選擇辦理項目 (可多選)")
+        
+        # 初始化 Session State 來儲存選中的項目
+        if "selected_options" not in st.session_state:
+            st.session_state.selected_options = set()
 
-        # --- 7. 第四層：動態合併附件與上傳欄位 ---
-        if selected_actions:
-            st.write(f"### 📂 辦理清單：{', '.join(selected_actions)}")
+        # 做出橫向按鈕
+        cols = st.columns(len(options))
+        for i, option in enumerate(options):
+            # 判斷按鈕顏色：選中為 primary，未選為 secondary
+            is_selected = option in st.session_state.selected_options
+            if cols[i].button(
+                option, 
+                key=f"btn_{option}", 
+                use_container_width=True, 
+                type="primary" if is_selected else "secondary"
+            ):
+                # 點擊切換狀態
+                if is_selected:
+                    st.session_state.selected_options.remove(option)
+                else:
+                    st.session_state.selected_options.add(option)
+                st.rerun() # 點擊後立即刷新畫面
+
+        # --- 7. 第四層：顯示合併後的附件 ---
+        current_selections = st.session_state.selected_options
+        
+        if current_selections:
+            st.write(f"### 📂 已選項目：{', '.join(current_selections)}")
             
-            # 用來存儲所有合併後的附件（使用 set 避免重複）
             all_attachments = set()
-            steps_content = []
-
-            for action in selected_actions:
+            
+            for action in current_selections:
                 action_data = db_info[db_info.iloc[:, 1] == action].iloc[0]
-                # 蒐集步驟說明
-                step_text = str(action_data.iloc[2])
-                if step_text != 'nan':
-                    steps_content.append(f"**【{action}】**: {step_text}")
-                
-                # 蒐集附件 (從 D 欄以後)
+                # 蒐集附件
                 items = action_data.iloc[3:].dropna().tolist()
                 for i in items:
                     all_attachments.add(i)
-
-            # 顯示合併後的步驟說明
-            with st.container(border=True):
-                st.write("**💡 綜合辦理步驟說明：**")
-                for step in steps_content:
-                    st.write(step)
             
             st.divider()
-            st.write("**📋 請上傳下列合併後的檢附資料：**")
+            st.write("**📋 請上傳檢附資料：**")
             
-            # 顯示合併後的所有上傳欄位
             if all_attachments:
-                # 轉回 list 並排序，確保顯示整齊
-                sorted_attachments = sorted(list(all_attachments))
-                for idx, item in enumerate(sorted_attachments, 1):
+                # 排序顯示，視覺更整齊
+                for idx, item in enumerate(sorted(list(all_attachments)), 1):
                     with st.expander(f"附件 {idx}：{item}", expanded=True):
-                        st.file_uploader(f"請上傳 - {item}", key=f"upload_{item}")
+                        st.file_uploader(f"請上傳 - {item}", key=f"file_{item}")
             else:
-                st.info("所選項目無需檢附額外附件。")
+                st.info("所選項目無需附件。")
         else:
-            st.warning("👈 請先在上方勾選至少一項辦理項目。")
+            st.write("👉 請點擊上方按鈕選擇辦理項目。")
     else:
-        st.warning(f"⚠️ 資料庫中找不到『{sel_type}』的辦理項目")
+        st.warning(f"⚠️ 找不到『{sel_type}』的辦理項目")
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
