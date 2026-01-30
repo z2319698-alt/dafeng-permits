@@ -20,7 +20,7 @@ def load_all_data():
 try:
     main_df, file_df = load_all_data()
 
-    # --- 🌟 最頂層大標題 (修正參數為 unsafe_allow_html) ---
+    # --- 🌟 最頂層大標題 ---
     st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
     st.write("---")
 
@@ -88,11 +88,11 @@ try:
 
             st.divider()
 
-            # --- 8. 提出申請按鈕 ---
-            st.markdown("### 📤 第三步：送出申請通知")
-            if st.button("🚀 生成申請郵件", use_container_width=True, type="primary"):
+            # --- 8. 提出申請按鈕 (修改字樣) ---
+            st.markdown("### 📤 第三步：確認並送出")
+            if st.button("🚀 提出申請", use_container_width=True, type="primary"):
                 if not user_name:
-                    st.warning("⚠️ 請填寫申請人姓名！")
+                    st.warning("⚠️ 請先填寫申請人姓名！")
                 else:
                     subject = f"【許可證申請】{sel_name}_{user_name}_{apply_date}"
                     body = (f"Andy 您好，\n\n同仁 {user_name} 已於 {apply_date} 提交申請。\n"
@@ -102,10 +102,10 @@ try:
                     
                     mailto_link = f"mailto:andy.chen@df-recycle.com?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
                     
-                    st.success("✅ 申請資訊已彙整！請點擊下方按鈕寄出郵件。")
+                    st.success("✅ 申請資訊彙整完畢！請點擊下方按鈕啟動郵件。")
                     st.link_button("📧 開啟郵件軟體發送給 Andy", mailto_link, use_container_width=True)
         else:
-            st.write("👆 請點擊上方按鈕選擇辦理項目。")
+            st.write("👆 請點擊上方橫向按鈕選擇辦理項目。")
     else:
         st.warning(f"⚠️ 找不到該類型的辦理資料。")
 
