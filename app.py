@@ -1,8 +1,11 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime as dt
 
-st.set_page_config(page_title="DEBUG-證照系統", layout="wide")
+st.set_page_config(page_title="最小測試-證照顯示", layout="wide")
+
+# ========= 直接讀「數據總表」 =========
+# ⚠️ 這裡的 sheet_name 請填「實際包含 管制編號 / 到期日期 的那一張」
+SHEET_NAME = "數據總表"   # ← 如果不是這個名字，請改成實際的
 
 URL = (
     "https://docs.google.com/spreadsheets/d/"
@@ -10,74 +13,47 @@ URL = (
     "/export?format=xlsx"
 )
 
-# ===== 讀資料 =====
-@st.cache_data(show_spinner=False)
-def load_data():
-    sheets = pd.read_excel(URL, sheet_name=None)
-    main_df = None
-    for name, df in sheets.items():
-        if "許可證名稱" in df.columns:
-            main_df = df.copy()
-    if main_df is None:
-        raise ValueError("❌ 找不到包含『許可證名稱』的工作表")
-    return main_df
+df = pd.read_excel(URL, sheet_name=SHEET_NAME)
 
-df = load_data()
+# ========= 基本防呆 =========
+st.write("🔎 目前讀取的欄位：", df.columns.tolist())
+st.write("🔎 資料筆數：", len(df))
 
-# ===== 強制顯示 df 狀態（證據 1）=====
-st.write("🔍 數據總表欄位：", df.columns.tolist())
-st.write("🔍 數據總表筆數：", len(df))
+# 清理字串（非常重要）
+df["許可證名稱"] = df["許可證名稱"].astype(str).str.strip()
 
-# ===== Sidebar =====
-st.sidebar.header("系統導航")
-
-sel_type = st.sidebar.selectbox(
-    "選擇類型（DEBUG）",
-    df["許可證類型"].dropna().unique().tolist()
-)
-
-sub_df = df[df["許可證類型"] == sel_type]
+# ========= Sidebar =========
+st.sidebar.header("系統導航（測試）")
 
 sel_name = st.sidebar.radio(
-    "選擇許可證（DEBUG）",
-    sub_df["許可證名稱"].tolist()
+    "選擇許可證",
+    df["許可證名稱"].tolist()
 )
 
-# ===== 主畫面 =====
+# ========= 主畫面 =========
 st.title(f"📄 {sel_name}")
 
-# ===== 再顯示一次目前選到什麼（證據 2）=====
-st.write("👉 目前選到的類型：", sel_type)
-st.write("👉 目前選到的許可證名稱：", sel_name)
-
-# ===== 關鍵：數據總表顯示 =====
+# ========= 關鍵：顯示資料 =========
 row = df[df["許可證名稱"] == sel_name]
 
-st.write("🔍 篩選後 row 是否為空：", row.empty)
-st.write("🔍 篩選後 row：")
+st.write("🔍 篩選後是否有資料：", not row.empty)
+st.write("🔍 篩選後資料：")
 st.dataframe(row)
 
-if not row.empty:
+if row.empty:
+    st.error("❌ 找不到對應的許可證資料（名稱對不到）")
+else:
     r = row.iloc[0]
 
-    st.markdown("## 📌 許可證基本資料（一定會顯示）")
+    st.markdown("## 📌 許可證基本資料")
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
 
     with c1:
-        st.metric("管制編號", str(r.get("管制編號", "—")))
+        st.metric("管制編號", r["管制編號"])
 
     with c2:
-        exp = r.get("到期日期")
         st.metric(
             "到期日期",
-            exp.strftime("%Y-%m-%d") if pd.notna(exp) else "未設定"
+            pd.to_datetime(r["到期日期"]).strftime("%Y-%m-%d")
         )
-
-    with c3:
-        if pd.notna(exp):
-            st.metric("剩餘天數", f"{(exp - pd.Timestamp.now()).days} 天")
-        else:
-            st.metric("剩餘天數", "—")
-else:
-    st.error("❌ row 是空的，代表主表中沒有這個『許可證名稱』")
