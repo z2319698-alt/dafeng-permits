@@ -4,15 +4,15 @@ import pandas as pd
 # 1. 頁面設定
 st.set_page_config(page_title="環保證照管理系統", layout="wide")
 
-# 2. 資料連結
+# 2. 資料連結 (Excel)
 URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=xlsx"
 SHEET_NAME = "大豐既有許可證到期提醒"
 
-@st.cache_data(ttl=5) # 快取縮短到 5 秒，確保你改 Excel 後幾乎是秒同步
+@st.cache_data(ttl=5)
 def load_data():
-    # 讀取 Excel
+    # 直接讀取 Excel
     df = pd.read_excel(URL, sheet_name=SHEET_NAME)
-    # 強制清理所有欄位名稱的隱形空白
+    # 清理欄位名稱空白
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
@@ -22,38 +22,40 @@ try:
     # --- 3. 側邊選單 (Sidebar) ---
     st.sidebar.markdown("## 📂 系統導覽")
     
-    # 這裡用第 0 欄（A 欄：許可證類型）
+    # 選擇類型 (A 欄)
     sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(df.iloc[:, 0].dropna().unique()))
     
-    # 過濾資料
+    # 過濾出該類型的資料範圍 (例如該類型的 C2-C17 與 E2-E17)
     sub_df = df[df.iloc[:, 0] == sel_type].copy()
-    
-    # 這裡用第 2 欄（C 欄：許可證名稱）
-    sel_name = st.sidebar.radio("2. 選擇許可證", sub_df.iloc[:, 2].dropna().unique())
 
-    # --- 🚀 4. 核心修正：用「位置」強行抓取日期 ---
-    # 找到選中名稱的那一列
-    target_row = sub_df[sub_df.iloc[:, 2] == sel_name].iloc[0]
-    
-    # 【最暴力解法】直接抓這列的第 5 個格子 (Index 4，即 E 欄)
-    # 不管欄位名稱對不對，程式只認位置！
-    raw_date_val = target_row.iloc[4] 
-    
-    # 強制轉字串並只取前 10 位 (YYYY-MM-DD)
-    date_display = str(raw_date_val)[:10] if str(raw_date_val) != 'nan' else "未設定"
+    # --- 🚀 關鍵修正：強制合併 C 欄與 E 欄內容 ---
+    # 我們建立一個新欄位叫「組合名稱」，把名稱和日期黏起來
+    def combine_name_date(row):
+        name = str(row.iloc[2]) # C 欄：名稱
+        date_val = str(row.iloc[4])[:10] # E 欄：日期 (只取前10位)
+        if date_val == 'nan': date_val = "未設定"
+        return f"{name} ({date_val})"
 
-    # ✅ 呈現標題：名稱 (日期)
-    # 我們換一個寫法，用 st.header 試試，有時候 title 會被系統樣式干擾
-    st.header(f"📄 {sel_name} ({date_display})")
+    sub_df["組合名稱"] = sub_df.apply(combine_name_date, axis=1)
 
-    # 呈現管制編號（第 2 欄，B 欄）
-    st.markdown(f"### 管制編號：{target_row.iloc[1]}")
+    # 2. 左側選單：直接讓使用者選這個「已經黏好日期」的選項
+    # 這樣 sel_name 本身就已經包含了 C+E 的內容
+    sel_combined = st.sidebar.radio("2. 選擇許可證", sub_df["組合名稱"].unique())
+
+    # --- 4. 主畫面呈現 ---
+    # 標題直接噴出你選到的「組合名稱」
+    st.title(f"📄 {sel_combined}")
+
+    # 為了顯示下方的管制編號，我們反查回原始資料
+    target_row = sub_df[sub_df["組合名稱"] == sel_combined].iloc[0]
+    st.markdown(f"### 管制編號：{target_row.iloc[1]}") # B 欄
     
     st.divider()
 
     # --- 5. 數據總表 ---
     with st.expander("📊 查看詳細數據內容"):
-        st.dataframe(sub_df, use_container_width=True, hide_index=True)
+        # 顯示時把我們臨時加的「組合名稱」刪掉，保持畫面乾淨
+        st.dataframe(sub_df.drop(columns=["組合名稱"]), use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"系統發生預期外的錯誤：{e}")
+    st.error(f"執行失敗：{e}")
