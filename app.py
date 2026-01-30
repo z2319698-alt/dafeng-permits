@@ -20,8 +20,8 @@ def load_all_data():
 try:
     main_df, file_df = load_all_data()
 
-    # --- 🌟 最頂層大標題 ---
-    st.markdown("<h1 style='text-align: center; color: #1E88E5;'>🌱 大豐環保許可證管理系統</h1>", unsafe_index=True)
+    # --- 🌟 最頂層大標題 (修正參數為 unsafe_allow_html) ---
+    st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
     st.write("---")
 
     # --- 3. 側邊選單 ---
@@ -36,7 +36,7 @@ try:
     expiry_date = str(target_main.iloc[3])
     clean_date = expiry_date[:10] if expiry_date != 'nan' else "未設定"
 
-    # --- 5. 許可證資訊標題 ---
+    # --- 5. 許可證資訊呈現 ---
     st.title(f"📄 {sel_name}")
     st.info(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}")
     
@@ -81,10 +81,10 @@ try:
                     for item in attachments:
                         final_attachments.add(str(item).strip())
 
-            st.write("**📋 附件上傳：**")
+            st.write("**📋 附件上傳區：**")
             for item in sorted(list(final_attachments)):
                 with st.expander(f"📁 {item}", expanded=True):
-                    st.file_uploader(f"上傳檔案", key=f"up_{item}")
+                    st.file_uploader(f"請上傳檔案 - {item}", key=f"up_{item}")
 
             st.divider()
 
@@ -104,11 +104,10 @@ try:
                     
                     st.success("✅ 申請資訊已彙整！請點擊下方按鈕寄出郵件。")
                     st.link_button("📧 開啟郵件軟體發送給 Andy", mailto_link, use_container_width=True)
-                    st.caption("提示：點擊後請記得在郵件中手動夾帶剛才上傳的檔案。")
         else:
             st.write("👆 請點擊上方按鈕選擇辦理項目。")
     else:
-        st.warning(f"⚠️ 找不到類型『{sel_type}』的辦理項目資料。")
+        st.warning(f"⚠️ 找不到該類型的辦理資料。")
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
