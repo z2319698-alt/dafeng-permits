@@ -8,49 +8,54 @@ st.set_page_config(page_title="環保證照管理系統", layout="wide")
 URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=xlsx"
 SHEET_NAME = "大豐既有許可證到期提醒"
 
-# --- 徹底放棄快取，確保標題日期秒更新 ---
-def load_data_fresh():
+@st.cache_data(show_spinner=False)
+def load_data():
     df = pd.read_excel(URL, sheet_name=SHEET_NAME)
     df.columns = df.columns.astype(str).str.strip()
+    # 轉換日期格式
+    if "到期日期" in df.columns:
+        df["到期日期"] = pd.to_datetime(df["到期日期"], errors="coerce")
     return df
 
 try:
-    df = load_data_fresh()
+    df = load_data()
 
-    # --- 側邊選單 (Sidebar) ---
+    # --- 3. 側邊欄 (Sidebar) ---
     st.sidebar.markdown("## 📂 系統導覽")
     
     # 選擇類型
-    t_list = sorted(df["許可證類型"].dropna().unique().tolist())
-    sel_type = st.sidebar.selectbox("選擇類型", t_list)
-    
-    # 過濾資料
-    sub = df[df["許可證類型"] == sel_type].copy()
-    
-    # 選擇許可證名稱
-    n_list = sub["許可證名稱"].dropna().tolist()
-    sel_name = st.sidebar.radio("選擇許可證", n_list)
+    sel_type = st.sidebar.selectbox("選擇類型", sorted(df["許可證類型"].dropna().unique().tolist()))
+    sub_df = df[df["許可證類型"] == sel_type].copy()
 
-    # --- 🚀 關鍵核心：標題後面直接黏上日期 ---
-    # 從同一張表抓日期 (E 欄)
-    target_row = sub[sub["許可證名稱"] == sel_name].iloc[0]
-    raw_date = str(target_row["到期日期"])
+    # --- 🚀 關鍵核心：在選單清單裡就直接把日期接上去 ---
+    def make_label(row):
+        name = str(row["許可證名稱"])
+        dt = row["到期日期"]
+        dt_str = dt.strftime("%Y-%m-%d") if pd.notna(dt) else "未設定"
+        return f"{name} ({dt_str})"
+
+    # 建立一個「顯示名稱」到「原始列索引」的對應，保證點選精準
+    sub_df["display_name"] = sub_df.apply(make_label, axis=1)
     
-    # 清理日期文字 (只取 YYYY-MM-DD 部分)
-    clean_date = raw_date.split(" ")[0] if " " in raw_date else raw_date
+    # 左側單選按鈕呈現「名稱 (日期)」
+    sel_display = st.sidebar.radio("選擇許可證", sub_df["display_name"].tolist())
 
-    # ✅ 這是你要的：標題字串直接強行組合
-    # 顯示效果如：📄 大豐全興廠空污操作許可 (2027-02-10)
-    st.title(f"📄 {sel_name} ({clean_date})")
+    # --- 4. 主畫面呈現 ---
+    # 根據選中的 display_name 反推原始資料
+    target_row = sub_df[sub_df["display_name"] == sel_display].iloc[0]
 
-    # --- 副標題：呈現管制編號 ---
-    st.markdown(f"#### 管制編號：{target_row['管制編號']}")
+    # ✅ 標題直接顯示選中的文字（內含日期）
+    st.title(f"📄 {sel_display}")
+
+    # 呈現管制編號
+    st.markdown(f"### 管制編號：{target_row['管制編號']}")
     
     st.divider()
 
-    # --- 數據總表 ---
+    # --- 5. 數據總表 ---
     with st.expander("📊 數據總表"):
-        st.dataframe(sub, use_container_width=True, hide_index=True)
+        # 顯示時把暫存的 display_name 欄位拔掉
+        st.dataframe(sub_df.drop(columns=["display_name"]), use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"讀取失敗：{e}")
+    st.error(f"執行失敗：{e}")
