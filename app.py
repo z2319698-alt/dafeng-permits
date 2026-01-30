@@ -42,26 +42,20 @@ sel_name = st.sidebar.radio(
     sub_df["許可證名稱"].dropna().tolist()
 )
 
-# ===== 主畫面 =====
+# ===== 主畫面：標題與緊隨其下的資訊 =====
 st.title(f"📄 {sel_name}")
 
-# --- 這裡開始是在名稱下方呈現你要的資料 ---
 row = sub_df[sub_df["許可證名稱"] == sel_name]
 if not row.empty:
     r = row.iloc[0]
+    date_val = r["到期日期"].strftime("%Y-%m-%d") if pd.notna(r["到期日期"]) else "未設定"
     
-    # 使用 columns 讓資訊水平排列在名稱下方
-    info_col1, info_col2 = st.columns(2)
-    
-    with info_col1:
-        st.markdown(f"### 🆔 管制編號：**{r['管制編號']}**")
+    # 使用 Markdown 語法，設定字體大小為標題下方副標題等級 (H3/H4)
+    # 此處呈現：管制編號：N0910827 | 到期日期：2027-02-10
+    st.markdown(f"#### 🆔 管制編號：`{r['管制編號']}` ｜ 📅 到期日期：`{date_val}`")
 
-    with info_col2:
-        date_val = r["到期日期"].strftime("%Y-%m-%d") if pd.notna(r["到期日期"]) else "未設定"
-        st.markdown(f"### 📅 到期日期：**{date_val}**")
-
-# 這裡保留你原本的分隔線與 debug 表格
+# 保留原本的其他功能與表格
 st.divider()
 
-with st.expander("📊 本類型所有資料清單"):
+with st.expander("📊 數據總表"):
     st.dataframe(sub_df, use_container_width=True, hide_index=True)
