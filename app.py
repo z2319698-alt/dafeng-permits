@@ -16,10 +16,10 @@ def load_all_data():
     attach_df = next((df for n, df in all_sh.items() if "檢查表" in n or "附件" in n), None)
     
     if attach_df is not None:
-        # 處理合併儲存格：確保每一行都有類別與項目
+        # 處理合併儲存格
         attach_df.iloc[:, 0] = attach_df.iloc[:, 0].ffill()
         attach_df.iloc[:, 1] = attach_df.iloc[:, 1].ffill()
-        # 清除所有欄位的空格與轉字串
+        # 全表去空格並轉字串
         attach_df = attach_df.applymap(lambda x: str(x).strip() if pd.notnull(x) else x)
             
     for n, df in all_sh.items():
@@ -41,16 +41,19 @@ try:
         st.markdown(f'<div style="background:#ff4b4b;color:white;padding:10px;border-radius:5px;"><marquee scrollamount="6">{m_txt}</marquee></div>', unsafe_allow_html=True)
 
     # 3. 側邊選單
-    st.sidebar.markdown("## 📂 系統導航")
+    st.sidebar.markdown("## 📂 系統導覽")
     t_list = sorted(df[C_TYPE].dropna().unique().tolist())
     sel_t = st.sidebar.selectbox("1. 選擇類型", t_list)
     sub = df[df[C_TYPE] == sel_t].reset_index(drop=True)
     sel_n = st.sidebar.radio("2. 選擇許可證", sub[C_NAME].tolist())
 
+    # 4. 主畫面顯示
     st.title(f"📄 {sel_n}")
+    row_info = sub[sub[C_NAME] == sel_n].iloc[0]
+    st.write(f"**目前效期：** {row_info[C_DATE]}")
     st.divider()
 
-    # --- 第三層按鈕：項目選擇 (B欄) ---
+    # --- 第三層按鈕 (B欄) ---
     acts_list = []
     if attach_db is not None:
         acts_list = attach_db[attach_db.iloc[:, 0] == sel_t].iloc[:, 1].unique().tolist()
@@ -67,59 +70,50 @@ try:
         if st.session_state.get("last_p") == sel_n and "cur_a" in st.session_state:
             curr_act = st.session_state["cur_a"]
             st.markdown(f"### 📍 目前選擇項目：**{curr_act}**")
-            
-            # 取得該項目下所有的原始資料列
             target_rows = attach_db[(attach_db.iloc[:, 0] == sel_t) & (attach_db.iloc[:, 1] == curr_act)]
 
-            # --- 第一步：法規依據條件確認 (C 欄) ---
+            # --- 第一步：法規依據 (C 欄) - 恢復勾選功能 ---
             with st.expander("⚖️ 第一步：法規依據條件確認", expanded=True):
-                laws_list = target_rows.iloc[:, 2].dropna().unique().tolist()
-                selected_laws = []
-                for l in laws_list:
+                laws_in_excel = target_rows.iloc[:, 2].unique().tolist()
+                selected_conditions = []
+                for l in laws_in_excel:
                     if str(l).lower() != 'nan' and str(l) != '':
                         if st.checkbox(str(l), key=f"law_{sel_n}_{curr_act}_{l}"):
-                            selected_laws.append(str(l))
+                            selected_conditions.append(str(l))
 
             # --- 第二步：人員登錄 ---
             with st.expander("👤 第二步：人員登錄", expanded=True):
                 u_name = st.text_input("辦理人姓名", key=f"un_{sel_n}")
                 
-            # --- 第三步：附件清單 (根據第一步勾選的結果連動 D-I 欄) ---
+            # --- 第三步：附件 (D 到 I 欄) - 根據第一步勾選連動 ---
             if u_name:
                 st.markdown("---")
                 st.subheader("📂 第三步：應檢附附件清單")
                 
-                if selected_laws:
-                    # 篩選出第一步有勾選的法規所對應的資料行
-                    relevant_files_rows = target_rows[target_rows.iloc[:, 2].isin(selected_laws)]
-                    
-                    # 攤平 D 到 I 欄 (索引 3 到 8)
-                    files_flat = relevant_files_rows.iloc[:, 3:9].values.flatten()
-                    # 去重、去空白、去 nan
+                if selected_conditions:
+                    # 只抓取「被勾選的那幾列」的附件
+                    matched_data = target_rows[target_rows.iloc[:, 2].isin(selected_conditions)]
+                    files_flat = matched_data.iloc[:, 3:9].values.flatten()
                     final_files = list(dict.fromkeys([str(f).strip() for f in files_flat if pd.notnull(f) and str(f).lower() != 'nan' and str(f) != '']))
                     
                     if final_files:
                         checked_f = []
                         for f in final_files:
                             ca, cb = st.columns([0.6, 0.4])
-                            if ca.checkbox(f, key=f"file_{sel_n}_{curr_act}_{f}"):
+                            if ca.checkbox(f, key=f"f_{sel_n}_{curr_act}_{f}"):
                                 checked_f.append(f)
                             cb.file_uploader("上傳", key=f"up_{sel_n}_{curr_act}_{f}", label_visibility="collapsed")
                         
                         st.divider()
                         if st.button("🚀 提出申請並發信", use_container_width=True):
-                            info = f"單位：{sel_n}\n項目：{curr_act}\n辦理人：{u_name}\n條件：{', '.join(selected_laws)}\n附件：{', '.join(checked_f)}"
+                            info = f"單位：{sel_n}\n項目：{curr_act}\n人員：{u_name}\n勾選條件：{', '.join(selected_conditions)}\n附件：{', '.join(checked_f)}"
                             sub_e = urllib.parse.quote(f"許可辦理申請：{sel_n}")
                             body_e = urllib.parse.quote(info)
-                            st.markdown(f'<a href="mailto:andy.chen@df-recycle.com?subject={sub_e}&body={body_e}" style="background-color:#4CAF50;color:white;padding:12px;text-decoration:none;border-radius:5px;display:block;text-align:center;">📧 按此啟動郵件發送</a>', unsafe_allow_html=True)
-                    else:
-                        st.warning("勾選的條件在 Excel 中無對應附件清單。")
+                            st.markdown(f'<a href="mailto:andy.chen@df-recycle.com?subject={sub_e}&body={body_e}" style="background-color:#4CAF50;color:white;padding:12px;text-decoration:none;border-radius:5px;display:block;text-align:center;">📧 啟動郵件系統</a>', unsafe_allow_html=True)
                 else:
-                    st.info("請在第一步勾選辦理條件，以自動產生對應附件清單。")
-            else:
-                st.info("請輸入姓名以顯示第三步。")
+                    st.info("請在第一步勾選辦理條件，系統將自動過濾出對應的附件清單。")
     else:
-        st.info("目前此類型無須透過自主檢查表辦理。")
+        st.info("此類型目前無須透過自主檢查表辦理。")
 
 except Exception as e:
     st.error(f"系統錯誤: {e}")
