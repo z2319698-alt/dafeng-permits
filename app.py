@@ -2,78 +2,86 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime as dt
 
-st.set_page_config(page_title="大豐許可管理", layout="wide")
+st.set_page_config(page_title="大豐許可管理")
 
-# 1. 附件資料庫 (對應展延/變更/變更暨展延)
+# 1. 附件資料庫
 DB = {
     "P": {
-        "展延": ["清理計畫書(更新版)", "廢棄物合約影本", "負責人身分證"],
-        "變更": ["變更申請表", "差異對照表", "製程說明圖"],
-        "異動": ["異動申請書", "相關證明文件"]
+        "展延": ["清理計畫書", "廢棄物合約", "身分證"],
+        "變更": ["變更申請表", "差異對照表", "製程圖"],
+        "異動": ["異動申請書", "證明文件"]
     },
     "C": {
-        "展延": ["原許可正本", "車照", "證照", "處置同意文件"],
-        "變更": ["變更表", "車證", "有效保險單"],
-        "變更暨展延": ["合併申請書", "全套更新附件", "清除量統計表"]
+        "展延": ["原許可正本", "車照", "證照", "同意文件"],
+        "變更": ["變更表", "車證", "保險單"],
+        "變更暨展延": ["合併申請書", "更新附件", "統計表"]
     }
 }
 
 URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=xlsx"
 
-# 2. 讀取並偵測欄位
 @st.cache_data(ttl=60)
-def load():
-    all_sh = pd.read_excel(URL, sheet_name=None)
-    for name, df in all_sh.items():
+def load_data():
+    # 讀取所有分頁，尋找有資料的那張
+    shs = pd.read_excel(URL, sheet_name=None)
+    for n, df in shs.items():
         df.columns = [str(c).strip() for c in df.columns]
-        # 只要有「名稱」跟「日期」就認定是我們要的分頁
-        if any("名稱" in c for c in df.columns) and any("日期" in c for c in df.columns):
+        if "許可證名稱" in df.columns:
             return df
-    return list(all_sh.values())[0]
+    return list(shs.values())[0]
 
 try:
-    df = load()
+    df = load_data()
     
-    # 根據你提供的最新欄位清單進行對齊
-    c_nm = next(c for c in df.columns if "名稱" in c)
-    c_dt = next(c for c in df.columns if "日期" in c)
-    c_tp = next((c for c in df.columns if "類型" in c), None)
+    # 2. 直接根據你給的最新欄位名稱設定
+    C_NAME = "許可證名稱"
+    C_DATE = "到期日期"
+    C_TYPE = "許可證類型"
 
-    df['D'] = pd.to_datetime(df[c_dt], errors='coerce')
-    df['T'] = df[c_tp].fillna("一般管理") if c_tp else "一般管理"
-    now = dt.now()
-
+    df['D'] = pd.to_datetime(df[C_DATE], errors='coerce')
+    df['T'] = df[C_TYPE].fillna("一般")
+    
     # 3. 側邊選單
-    st.sidebar.header("📂 系統選單")
+    st.sidebar.header("選單")
     t_list = sorted(df['T'].unique().tolist())
-    s_t = st.sidebar.selectbox("1. 選擇類型", t_list)
+    sel_t = st.sidebar.selectbox("1. 類型", t_list)
     
-    sub = df[df['T'] == s_t].reset_index(drop=True)
+    sub = df[df['T'] == sel_t].reset_index(drop=True)
     if sub.empty: st.stop()
-    s_n = st.sidebar.radio("2. 選擇許可證", sub[c_nm].tolist())
+    sel_n = st.sidebar.radio("2. 許可證", sub[C_NAME].tolist())
 
     # 4. 主畫面
-    row = sub[sub[c_nm] == s_n].iloc[0]
-    st.title(f"📄 {s_n}")
+    row = sub[sub[C_NAME] == sel_n].iloc[0]
+    st.title(sel_n)
     
-    col1, col2 = st.columns(2)
-    d_val = row['D']
-    col1.metric("到期日期", d_val.strftime('%Y-%m-%d') if pd.notnull(d_val) else "未填寫")
+    # 顯示日期
+    d_v = row['D']
+    st.write("📅 到期日期:", d_v.strftime('%Y-%m-%d') if pd.notnull(d_v) else "未填")
     
-    rem = (d_val - now).days if pd.notnull(d_val) else None
-    color = "red" if (rem and rem < 90) else "green"
-    col2.markdown(f"**剩餘天數：** <span style='color:{color};font-size:24px;'>{rem if rem else 'N/A'} 天</span>", unsafe_allow_html=True)
-    
-    st.divider()
-    st.subheader("🛠️ 辦理項目指引")
-
-    # 判斷是「清除」還是「清理」
+    # 5. 辦理指引按鈕
     acts = None
-    if "清除" in str(s_n): acts = DB["C"]
-    elif "清理" in str(s_n) or "計畫" in str(s_n): acts = DB["P"]
+    if "清除" in str(sel_n): acts = DB["C"]
+    elif "清理" in str(sel_n) or "計畫" in str(sel_n): acts = DB["P"]
 
     if acts:
-        # 按鈕排版
-        cols = st.columns(len(acts))
-        for i, a_n in enumerate(acts.keys()):
-            if cols[i].button(a_n, key=f"b_{s_n}_{a_n}", use_container_width
+        st.divider()
+        st.subheader("🛠️ 辦理項目")
+        for a_n in acts.keys():
+            # 簡化 Key 避免過長
+            if st.button(a_n, key=f"b_{sel_n}_{a_n}"):
+                st.session_state["cur"] = a_n
+                st.session_state["pid"] = sel_n
+
+        # 顯示勾選清單
+        if st.session_state.get("pid") == sel_n:
+            cur = st.session_state.get("cur")
+            if cur in acts:
+                st.success(f"📍 正在辦理：{cur}")
+                for f in acts[cur]:
+                    st.checkbox(f, key=f"c_{sel_n}_{cur}_{f}")
+except Exception as e:
+    st.error(f"錯誤: {e}")
+
+st.divider()
+with st.expander("數據總表"):
+    st.dataframe(df)
