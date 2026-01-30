@@ -2,38 +2,26 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime as dt
 
-# 1. 配置
 st.set_page_config(page_title="大豐管理系統", layout="wide")
 
-# 2. 核心附件資料庫 (依據廢棄物清理法自主檢查表)
-# 這裡已將「空汙」內容移除，換成「清除許可」正確內容
+# 1. 依照類型設定各自的選項與附件
+# 您可以隨時在下方 [] 內增加或修改各縣市要求的具體文件名稱
 DB_CONFIG = {
-    "展延": [
-        "1. 原核發許可證正本",
-        "2. 廢棄物清除或處理合約書(有效期內)",
-        "3. 員工職業訓練證明(駕駛員、技術員證照)",
-        "4. 員工投保證明(勞保卡)與身分證影本",
-        "5. 清除車輛照片及排氣檢驗合格證明"
-    ],
-    "變更": [
-        "1. 變更申請表及差異對照表",
-        "2. 變更事項證明文件(如增減車輛之行照)",
-        "3. 貯存場或轉運站之證明文件(若有涉及)",
-        "4. 財務狀況證明文件",
-        "5. 有效之責任保險單影本"
-    ],
-    "異動": [
-        "1. 異動申請書 (如負責人、聯絡人等基本資料)",
-        "2. 公司登記或商業登記變更證明文件",
-        "3. 相關異動事項佐證文件"
-    ],
-    "變更暨展延": [
-        "1. 變更暨展延申請表與差異對照表",
-        "2. 歷年清除量統計表(近五年)",
-        "3. 全套更新之計畫書與附件",
-        "4. 相關處置場/廠之同意文件",
-        "5. 切結書與其他縣市規定文件"
-    ]
+    "廢棄物清除許可證": {
+        "變更": ["變更申請表", "差異對照表", "變更事項證明", "行照影本", "保險單"],
+        "變更暨展延": ["變更暨展延申請書", "全套更新版附件", "歷年清除量統計表", "切結書"],
+        "展延": ["原許可證正本", "清除合約書", "駕駛員/技術員證照", "勞保卡", "車照/排煙檢驗"]
+    },
+    "廢棄物清理計畫書": {
+        "變更": ["清理計畫書變更申請表", "製程說明圖", "廢棄物產出量對照表"],
+        "展延": ["清理計畫書展延申請表", "最新版清理計畫書", "廢棄物委託契約影本"],
+        "異動": ["異動申請書", "相關證明文件", "負責人或基本資料變更證明"]
+    },
+    "水污染防治措施": {
+        "事前變更": ["水污染防治措施變更申請書", "技師簽證", "水質水量路徑圖"],
+        "事後變更": ["事後變更備查申請", "變更證明文件", "現場照片"],
+        "展延": ["水污染防治措施展延申請", "原核准文件正本", "水質檢測報告"]
+    }
 }
 
 URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=xlsx"
@@ -54,14 +42,13 @@ try:
     df['T'] = df[C_TYPE].fillna("一般管理")
     now = dt.now()
 
-    # 3. 🔥 跑馬燈回歸
+    # 2. 跑馬燈警報
     urgent = df[(df['D'] <= now + pd.Timedelta(days=180)) & (df['D'].notnull())]
     if not urgent.empty:
         m_items = [f"🚨 {r[C_NAME]}(剩{(r['D']-now).days}天)" for _,r in urgent.iterrows()]
-        txt = "　　".join(m_items)
-        st.markdown(f'<div style="background:#ff4b4b;color:white;padding:10px;border-radius:5px;"><marquee scrollamount="6">{txt}</marquee></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#ff4b4b;color:white;padding:10px;border-radius:5px;"><marquee scrollamount="6">{"　　".join(m_items)}</marquee></div>', unsafe_allow_html=True)
 
-    # 4. 側邊選單
+    # 3. 側邊選單
     st.sidebar.markdown("## 📂 系統導航")
     t_list = sorted(df['T'].unique().tolist())
     sel_t = st.sidebar.selectbox("1. 選擇類型", t_list)
@@ -70,7 +57,7 @@ try:
     if sub.empty: st.stop()
     sel_n = st.sidebar.radio("2. 選擇許可證", sub[C_NAME].tolist())
 
-    # 5. 主畫面顯示
+    # 4. 主畫面顯示
     row = sub[sub[C_NAME] == sel_n].iloc[0]
     st.title(f"📄 {sel_n}")
     
@@ -79,39 +66,48 @@ try:
     col1.metric("到期日期", d_val.strftime('%Y-%m-%d') if pd.notnull(d_val) else "未填")
     days_left = (d_val - now).days if pd.notnull(d_val) else None
     col2.metric("剩餘天數", f"{days_left} 天" if days_left else "N/A")
-    col3.metric("目前類型", row['T'])
+    col3.metric("許可類型", row['T'])
 
     if C_URL and pd.notnull(row[C_URL]):
         st.info(f"🔗 [點此開啟該縣市審查規範網址]({row[C_URL]})")
 
     st.divider()
 
-    # 6. 辦理項目 (強制顯示按鈕)
+    # 5. 動態判定按鈕選項
     st.subheader("🛠️ 辦理項目指引")
+    
+    # 根據 Excel 的「許可證類型」來抓取對應的按鈕清單
+    # 如果類型沒對上，預設顯示「展延」
+    my_type = row[C_TYPE]
+    acts = DB_CONFIG.get(my_type, {"展延": ["請確認 Excel 類型名稱是否正確"]})
+
+    # 初始化狀態
     if "cur_a" not in st.session_state or st.session_state.get("last_p") != sel_n:
-        st.session_state["cur_a"] = "展延"
+        st.session_state["cur_a"] = list(acts.keys())[0] # 預設抓第一個選項
         st.session_state["last_p"] = sel_n
 
-    btn_cols = st.columns(len(DB_CONFIG))
-    for i, a_name in enumerate(DB_CONFIG.keys()):
+    # 渲染按鈕
+    btn_cols = st.columns(len(acts))
+    for i, a_name in enumerate(acts.keys()):
         if btn_cols[i].button(a_name, key=f"b_{sel_n}_{a_name}", use_container_width=True):
             st.session_state["cur_a"] = a_name
 
-    # 7. 顯示附件勾選與上傳欄位
+    # 6. 顯示附件勾選與上傳欄位
     curr_act = st.session_state["cur_a"]
     st.success(f"📍 正在辦理：{curr_act}")
     
-    for item in DB_CONFIG[curr_act]:
-        c1, c2 = st.columns([0.4, 0.6])
-        with c1:
-            st.checkbox(item, key=f"ck_{sel_n}_{curr_act}_{item}")
-        with c2:
-            st.file_uploader("點擊或拖入檔案上傳", key=f"up_{sel_n}_{curr_act}_{item}")
+    if curr_act in acts:
+        for item in acts[curr_act]:
+            c1, c2 = st.columns([0.4, 0.6])
+            with c1:
+                st.checkbox(item, key=f"ck_{sel_n}_{curr_act}_{item}")
+            with c2:
+                st.file_uploader("上傳檔案", key=f"up_{sel_n}_{curr_act}_{item}", label_visibility="collapsed")
 
 except Exception as e:
     st.error(f"系統錯誤: {e}")
 
-# 8. 數據總表 (全呈現)
+# 7. 數據總表
 st.divider()
 st.subheader("📊 原始數據總表")
 with st.expander("展開查看完整 Excel 表格"):
