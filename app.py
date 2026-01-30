@@ -2,14 +2,37 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime as dt
 
-# 1. 配置
 st.set_page_config(page_title="大豐管理系統", layout="wide")
 
-# 2. 附件資料庫 (直接合併，不再分 P 或 C，讓按鈕通通用這套)
-DB_ALL = {
-    "展延": ["原許可證正本", "清理計畫書(更新版)", "車輛照片 (含排氣檢驗)", "負責人身分證影本", "廢棄物合約影本", "處置同意文件"],
-    "變更": ["變更申請表", "差異對照表", "變更事項證明", "行照影本", "保險單影本", "製程說明圖"],
-    "變更暨展延": ["變更暨展延申請書", "全套更新版附件", "歷年清除量統計表", "相關切結書"]
+# 核心附件資料庫 - 參照「自主檢查表」規範
+# 1. 應檢附文件 (通用) 
+COMMON_DOCS = [
+    "1. 公私場所基本資料表 (表 C)",
+    "2. 公私場所製程摘要表 (表 C-A1)",
+    "3. 空氣污染防制計畫書/差異說明書",
+    "4. 試車計畫書",
+    "5. 目的事業主管機關核准設立證明文件影本"
+]
+
+# 2. 針對不同申請類別的特定文件 
+DB_CONFIG = {
+    "展延": COMMON_DOCS + ["歷年清除量統計表", "原許可證正本"],
+    "變更": COMMON_DOCS + [
+        "公私場所差異對照表 (表 AP-D)",
+        "產品或產能快速變動資料表 (表 AP-Q)",
+        "空氣污染減量措施相關證明"
+    ],
+    "異動": COMMON_DOCS + [
+        "公私場所差異對照表 (表 AP-D)",
+        "異動所需之工程期程相關文件",
+        "監測設施說明書及連線計畫書"
+    ],
+    "變更暨展延": COMMON_DOCS + [
+        "公私場所差異對照表 (表 AP-D)",
+        "變更事項證明文件",
+        "原許可證正本",
+        "全套更新附件"
+    ]
 }
 
 URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=xlsx"
@@ -25,65 +48,50 @@ def load_data():
 try:
     df = load_data()
     C_NAME, C_DATE, C_TYPE = "許可證名稱", "到期日期", "許可證類型"
+    C_URL = next((c for c in df.columns if "網址" in c), None)
+    
     df['D'] = pd.to_datetime(df[C_DATE], errors='coerce')
     df['T'] = df[C_TYPE].fillna("一般管理")
     now = dt.now()
 
-    # 3. 頂部跑馬燈
-    urgent = df[(df['D'] <= now + pd.Timedelta(days=180)) & (df['D'].notnull())]
-    if not urgent.empty:
-        m_items = [f"🚨 {r[C_NAME]}(剩{(r['D']-now).days}天)" for _,r in urgent.iterrows()]
-        txt = "　　".join(m_items)
-        st.markdown(f'<div style="background:#ff4b4b;color:white;padding:10px;border-radius:5px;"><marquee scrollamount="6">{txt}</marquee></div>', unsafe_allow_html=True)
-
-    # 4. 側邊選單
+    # 側邊欄與導航
     st.sidebar.markdown("## 📂 系統導航")
     t_list = sorted(df['T'].unique().tolist())
     sel_t = st.sidebar.selectbox("1. 選擇類型", t_list)
-    st.sidebar.markdown("---")
-    
     sub = df[df['T'] == sel_t].reset_index(drop=True)
     if sub.empty: st.stop()
     sel_n = st.sidebar.radio("2. 選擇許可證", sub[C_NAME].tolist())
 
-    # 5. 主畫面
+    # 主畫面資料
     row = sub[sub[C_NAME] == sel_n].iloc[0]
     st.title(f"📄 {sel_n}")
     
-    c1, c2, c3 = st.columns(3)
-    d_val = row['D']
-    c1.metric("到期日期", d_val.strftime('%Y-%m-%d') if pd.notnull(d_val) else "未填寫")
-    days_left = (d_val - now).days if pd.notnull(d_val) else None
-    c2.metric("剩餘天數", f"{days_left} 天" if days_left else "N/A")
-    c3.metric("目前類型", row['T'])
+    # 顯示網址連結 (Excel 聯動)
+    if C_URL and pd.notnull(row[C_URL]):
+        st.info(f"🔗 [點此開啟各縣市審查規範網址]({row[C_URL]})")
 
     st.divider()
 
-    # 6. 🔥 強制顯示辦理項目 (不再判斷名稱)
-    st.subheader("🛠️ 辦理項目指引")
-    
-    # 初始化狀態
+    # 辦理項目選擇區
     if "cur_a" not in st.session_state or st.session_state.get("last_p") != sel_n:
         st.session_state["cur_a"] = "展延"
         st.session_state["last_p"] = sel_n
 
-    # 渲染按鈕 (橫排)
-    btn_cols = st.columns(len(DB_ALL))
-    for i, a_name in enumerate(DB_ALL.keys()):
-        if btn_cols[i].button(a_name, key=f"btn_{sel_n}_{a_name}", use_container_width=True):
+    btn_cols = st.columns(len(DB_CONFIG))
+    for i, a_name in enumerate(DB_CONFIG.keys()):
+        if btn_cols[i].button(a_name, key=f"b_{sel_n}_{a_name}", use_container_width=True):
             st.session_state["cur_a"] = a_name
 
-    # 顯示勾選清單
+    # 顯示附件勾選與上傳欄位
     curr_act = st.session_state["cur_a"]
-    st.success(f"📍 正在辦理：{curr_act}")
-    for item in DB_ALL[curr_act]:
-        st.checkbox(item, key=f"chk_{sel_n}_{curr_act}_{item}")
+    st.success(f"📍 正在辦理：{curr_act} (請根據下方清單準備附件)")
+    
+    for item in DB_CONFIG[curr_act]:
+        c1, c2 = st.columns([0.4, 0.6])
+        with c1:
+            st.checkbox(item, key=f"ck_{sel_n}_{curr_act}_{item}")
+        with c2:
+            st.file_uploader("上傳檔案", key=f"up_{sel_n}_{curr_act}_{item}", label_visibility="collapsed")
 
 except Exception as e:
     st.error(f"系統錯誤: {e}")
-
-# 7. 原始數據 (呈現完整表格)
-st.divider()
-st.subheader("📊 原始數據總表")
-with st.expander("展開查看完整 Excel 表格"):
-    st.dataframe(df, use_container_width=True)
