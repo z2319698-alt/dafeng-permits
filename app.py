@@ -5,7 +5,7 @@ import urllib.parse
 
 st.set_page_config(page_title="大豐管理系統", layout="wide")
 
-# 1. 法規資料庫 (鎖定正確對應)
+# 1. 精確法規資料庫 (排除混淆內容)
 LAW_REQUIREMENTS = {
     "廢棄物清理計畫書": {
         "變更": ["涉及主體、類別、產能擴增達 10% 以上 (廢清法第 31 條)", "廢棄物項目增加或數量異動逾 10%"],
@@ -24,14 +24,14 @@ LAW_REQUIREMENTS = {
     }
 }
 
-# 2. 資料讀取邏輯 (針對 GID 846283148 分頁)
+# 2. 資料讀取 (讀取所有分頁)
 URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=xlsx"
 
 @st.cache_data(ttl=60)
 def load_all_data():
     all_sh = pd.read_excel(URL, sheet_name=None)
     main_df = None
-    # 這裡我強制尋找含有「附件」兩個字的分頁，確保對接到 GID 846283148
+    # 尋找含有「附件」字眼的分頁 (對應 GID 846283148)
     attach_df = next((df for name, df in all_sh.items() if "附件" in name), None)
     
     for n, df in all_sh.items():
@@ -59,7 +59,7 @@ try:
     sub = df[df[C_TYPE] == sel_t].reset_index(drop=True)
     sel_n = st.sidebar.radio("2. 選擇許可證", sub[C_NAME].tolist())
 
-    # 5. 主畫面基本資訊
+    # 5. 主畫面資訊
     row = sub[sub[C_NAME] == sel_n].iloc[0]
     st.title(f"📄 {sel_n}")
     st.divider()
@@ -76,30 +76,4 @@ try:
     for i, a_name in enumerate(acts.keys()):
         if btn_cols[i].button(a_name, key=f"b_{sel_n}_{a_name}", use_container_width=True):
             st.session_state["cur_a"] = a_name
-            st.session_state["last_p"] = sel_n
-
-    # 7. 流程：法規 -> 姓名 -> 附件清單
-    if st.session_state.get("last_p") == sel_n:
-        curr_act = st.session_state.get("cur_a")
-        st.markdown(f"### 📍 目前選擇：{curr_act}")
-        
-        # 第一步：法規
-        with st.expander("⚖️ 第一步：法規依據條件確認", expanded=True):
-            match_key = next((k for k in LAW_REQUIREMENTS if k in raw_type), None)
-            conditions = LAW_REQUIREMENTS[match_key].get(curr_act, ["請參考官方規定"]) if match_key else ["請參考官方規定"]
-            selected_laws = [c for c in conditions if st.checkbox(c, key=f"law_{sel_n}_{curr_act}_{c}")]
-
-        # 第二步：登錄
-        with st.expander("👤 第二步：人員登錄", expanded=True):
-            c1, c2 = st.columns(2)
-            u_name = c1.text_input("辦理人姓名", key=f"name_{sel_n}")
-            u_date = c2.date_input("辦理日期", value=now, key=f"date_{sel_n}")
-            
-            if u_name:
-                # 第三步：附件 (強制完整讀取)
-                st.markdown("---")
-                st.subheader(f"📂 第三步：應檢附附件清單 (依據 Excel 分頁)")
-                
-                final_items = []
-                if attach_db is not None:
-                    # 強制欄位名稱對
+            st.session_state["last_
