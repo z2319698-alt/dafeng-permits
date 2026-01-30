@@ -3,11 +3,13 @@ import pandas as pd
 from datetime import datetime as dt
 import urllib.parse
 
+# 1. 頁面配置
 st.set_page_config(page_title="大豐管理系統", layout="wide")
 
+# 2. 讀取數據
 URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=xlsx"
 
-@st.cache_data(ttl=10) # 幾乎即時同步
+@st.cache_data(ttl=10)
 def load_all_data():
     all_sh = pd.read_excel(URL, sheet_name=None)
     main_df = None
@@ -15,9 +17,12 @@ def load_all_data():
     attach_df = next((df for n, df in all_sh.items() if "檢查表" in n or "附件" in n), None)
     
     if attach_df is not None:
-        # 僅在內部填補合併儲存格空白，確保按鈕能對應到類型
+        # 處理合併儲存格：確保每一行都有正確的「許可證類型」與「辦理項目」
         attach_df.iloc[:, 0] = attach_df.iloc[:, 0].ffill()
         attach_df.iloc[:, 1] = attach_df.iloc[:, 1].ffill()
+        # 清除字串前後空格，避免匹配失敗
+        attach_df.iloc[:, 0] = attach_df.iloc[:, 0].astype(str).str.strip()
+        attach_df.iloc[:, 1] = attach_df.iloc[:, 1].astype(str).str.strip()
     
     for n, df in all_sh.items():
         df.columns = [str(c).strip() for c in df.columns]
@@ -42,9 +47,9 @@ try:
     st.title(f"📄 {sel_n}")
     st.divider()
 
-    # 第三層按鈕：嚴格從 Excel 分頁的 B 欄抓取
+    # 第三層按鈕：嚴格從 Excel 抓取 B 欄項目
     if attach_db is not None:
-        # 根據所選類型 (A欄) 找出對應的所有項目 (B欄)
+        # 精準匹配 A 欄，抓取該類型下所有的 B 欄項目
         acts_list = attach_db[attach_db.iloc[:, 0] == sel_t].iloc[:, 1].unique().tolist()
     else:
         acts_list = []
@@ -57,29 +62,29 @@ try:
                 st.session_state["cur_a"] = a
                 st.session_state["last_p"] = sel_n
     else:
-        st.error("Excel 中找不到此類型的辦理項目，請檢查 A 欄與 B 欄名稱是否一致。")
+        st.error(f"Excel 中找不到與『{sel_t}』完全匹配的辦理項目，請檢查 Excel A 欄。")
 
     # 流程執行
     if st.session_state.get("last_p") == sel_n and "cur_a" in st.session_state:
         curr_act = st.session_state["cur_a"]
         st.markdown(f"### 📍 目前選擇項目：**{curr_act}**")
         
-        # 篩選對應資料
+        # 篩選對應資料列
         target_rows = attach_db[(attach_db.iloc[:, 0] == sel_t) & (attach_db.iloc[:, 1] == curr_act)]
 
-        # 第一步：法規依據 (嚴格讀取 Excel 第四欄 D 欄)
+        # 第一步：法規依據 (讀取 Excel 第四欄 D 欄)
         with st.expander("⚖️ 第一步：法規依據條件確認", expanded=True):
             laws_excel = target_rows.iloc[:, 3].dropna().unique().tolist()
             if laws_excel:
                 selected_laws = [l for l in laws_excel if st.checkbox(l, key=f"law_{sel_n}_{curr_act}_{l}")]
             else:
-                st.write("Excel 中此項目無辦理條件內容。")
+                st.warning("Excel 中找不到此項目的辦理條件 (D 欄)。")
         
         # 第二步：人員登錄
         with st.expander("👤 第二步：人員登錄", expanded=True):
             u_name = st.text_input("辦理人姓名", key=f"un_{sel_n}")
             if u_name:
-                # 第三步：應檢附附件 (嚴格讀取 Excel 第三欄 C 欄)
+                # 第三步：附件清單 (讀取 Excel 第三欄 C 欄)
                 st.markdown("---")
                 st.subheader("📂 第三步：應檢附附件清單")
                 
@@ -91,14 +96,17 @@ try:
                         if ca.checkbox(item, key=f"ck_{sel_n}_{curr_act}_{item}"):
                             checked_f.append(item)
                         cb.file_uploader("上傳", key=f"f_{sel_n}_{curr_act}_{item}", label_visibility="collapsed")
+                else:
+                    st.warning("Excel 中找不到此項目的附件清單 (C 欄)。")
                 
-                # 發信按鈕
+                # 發信
                 st.divider()
                 if st.button("🚀 提出申請並發信", use_container_width=True):
                     info = f"單位：{sel_n}\n項目：{curr_act}\n人員：{u_name}\n附件：{', '.join(checked_f)}"
-                    sub_e = urllib.parse.quote(f"許可辦理申請：{sel_n}")
+                    sub_e = urllib.parse.quote(f"許可申請：{sel_n}")
                     body_e = urllib.parse.quote(info)
-                    st.markdown(f'<a href="mailto:andy.chen@df-recycle.com?subject={sub_e}&body={body_e}" style="background-color:#4CAF50;color:white;padding:12px;text-decoration:none;border-radius:5px;display:block;text-align:center;">📧 啟動郵件發送</a>', unsafe_allow_html=True)
+                    mailto_link = f"mailto:andy.chen@df-recycle.com?subject={sub_e}&body={body_e}"
+                    st.markdown(f'<a href="{mailto_link}" style="background-color:#4CAF50;color:white;padding:12px;text-decoration:none;border-radius:5px;display:block;text-align:center;">📧 按此啟動郵件系統發信</a>', unsafe_allow_html=True)
             else:
                 st.info("請輸入姓名以解鎖附件清單。")
 
