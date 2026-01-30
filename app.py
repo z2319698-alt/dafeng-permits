@@ -9,9 +9,8 @@ URL = (
     "/export?format=xlsx"
 )
 
-SHEET_NAME = "大豐既有許可證到期提醒"  # ✅ 你提供的分頁名稱
+SHEET_NAME = "大豐既有許可證到期提醒"
 
-# ===== 讀取正確分頁 =====
 @st.cache_data(show_spinner=False)
 def load_main_table():
     df = pd.read_excel(URL, sheet_name=SHEET_NAME)
@@ -19,7 +18,7 @@ def load_main_table():
 
 df = load_main_table()
 
-# ===== 欄位清理（避免前後空白/全形半形）=====
+# ===== 欄位清理 =====
 df.columns = df.columns.astype(str).str.strip()
 for col in ["許可證類型", "許可證名稱", "管制編號"]:
     if col in df.columns:
@@ -28,15 +27,8 @@ for col in ["許可證類型", "許可證名稱", "管制編號"]:
 if "到期日期" in df.columns:
     df["到期日期"] = pd.to_datetime(df["到期日期"], errors="coerce")
 
-# ===== 必要欄位檢查（缺欄就直接告警）=====
-need_cols = ["許可證類型", "許可證名稱", "管制編號", "到期日期"]
-missing = [c for c in need_cols if c not in df.columns]
-if missing:
-    st.error(f"❌ 讀到的分頁缺少欄位：{missing}\n\n實際欄位：{df.columns.tolist()}")
-    st.stop()
-
-# ===== Sidebar：選類型 -> 選許可證 =====
-st.sidebar.markdown("## 📂 系統導航")
+# ===== Sidebar 導覽 =====
+st.sidebar.markdown("## 📂 系統導覽")
 
 sel_type = st.sidebar.selectbox(
     "選擇類型",
@@ -50,28 +42,26 @@ sel_name = st.sidebar.radio(
     sub_df["許可證名稱"].dropna().tolist()
 )
 
-# ===== 主畫面：你要的「中間跳出資料」=====
+# ===== 主畫面 =====
 st.title(f"📄 {sel_name}")
 
+# --- 這裡開始是在名稱下方呈現你要的資料 ---
 row = sub_df[sub_df["許可證名稱"] == sel_name]
-if row.empty:
-    st.error("❌ 找不到對應的許可證資料（名稱可能有空白或不一致）")
-else:
+if not row.empty:
     r = row.iloc[0]
+    
+    # 使用 columns 讓資訊水平排列在名稱下方
+    info_col1, info_col2 = st.columns(2)
+    
+    with info_col1:
+        st.markdown(f"### 🆔 管制編號：**{r['管制編號']}**")
 
-    st.markdown("### 📌 許可證基本資料")
+    with info_col2:
+        date_val = r["到期日期"].strftime("%Y-%m-%d") if pd.notna(r["到期日期"]) else "未設定"
+        st.markdown(f"### 📅 到期日期：**{date_val}**")
 
-    c1, c2 = st.columns(2)
+# 這裡保留你原本的分隔線與 debug 表格
+st.divider()
 
-    with c1:
-        st.metric("管制編號", r["管制編號"])
-
-    with c2:
-        st.metric(
-            "到期日期",
-            r["到期日期"].strftime("%Y-%m-%d") if pd.notna(r["到期日期"]) else "未設定"
-        )
-
-# （可選）讓你確認目前類型下有哪些資料
-with st.expander("📊 本類型資料（除錯用，可關閉）"):
+with st.expander("📊 本類型所有資料清單"):
     st.dataframe(sub_df, use_container_width=True, hide_index=True)
