@@ -88,9 +88,11 @@ try:
 
             st.divider()
 
-            # --- 8. 提出申請按鈕 (修改字樣) ---
+            # --- 8. 提出申請按鈕 (已修正寬度) ---
             st.markdown("### 📤 第三步：確認並送出")
-            if st.button("🚀 提出申請", use_container_width=True, type="primary"):
+            
+            # 移除 use_container_width=True，讓按鈕回縮到文字長度
+            if st.button("🚀 提出申請", type="primary"):
                 if not user_name:
                     st.warning("⚠️ 請先填寫申請人姓名！")
                 else:
@@ -102,8 +104,9 @@ try:
                     
                     mailto_link = f"mailto:andy.chen@df-recycle.com?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
                     
-                    st.success("✅ 申請資訊彙整完畢！請點擊下方按鈕啟動郵件。")
-                    st.link_button("📧 開啟郵件軟體發送給 Andy", mailto_link, use_container_width=True)
+                    st.success("✅ 申請資訊彙整完畢！")
+                    # 同樣讓這個按鈕也縮短
+                    st.link_button("📧 開啟郵件軟體發送給 Andy", mailto_link)
         else:
             st.write("👆 請點擊上方橫向按鈕選擇辦理項目。")
     else:
