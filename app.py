@@ -42,25 +42,21 @@ sel_name = st.sidebar.radio(
     sub_df["許可證名稱"].dropna().tolist()
 )
 
-# ===== 主畫面：精準呈現標題與副標題 =====
+# ===== 主畫面：直接從總表抓取對應的那一列資料 =====
 st.title(f"📄 {sel_name}")
 
-# 直接從 sub_df 中找到對應名稱的那一行
-target = sub_df[sub_df["許可證名稱"] == sel_name]
+# 直接用你選的名稱去總表(sub_df)找那一列
+info = sub_df[sub_df["許可證名稱"] == sel_name].iloc[0]
 
-if not target.empty:
-    res = target.iloc[0]
-    # 格式化日期為 2027-02-10 這種純文字
-    date_str = res["到期日期"].strftime("%Y-%m-%d") if pd.notna(res["到期日期"]) else "未設定"
-    
-    # 【關鍵：直接呈現你要求的文字格式】
-    # 字體大小稍微小於標題，使用 h3 級別
-    st.markdown(f"### 管制編號：{res['管制編號']}  到期日期：{date_str}")
-else:
-    # 萬一名稱對應失敗，顯示警告以供除錯
-    st.warning("⚠️ 系統無法在總表中找到此許可證的詳細資料，請檢查名稱是否包含隱藏空格。")
+# 讀取編號與日期（直接從 row 裡面拿）
+id_num = info["管制編號"]
+# 格式化日期：如果你希望呈現 2027-02-10
+dt_val = info["到期日期"].strftime("%Y-%m-%d") if pd.notna(info["到期日期"]) else "未設定"
 
-# 保留原本的提示與數據總表
+# 【這就是你要的：名稱正下方直接呈現】
+st.write(f"### 管制編號：{id_num} ｜ 到期日期：{dt_val}")
+
+# ===== 下方原本的內容完全不動 =====
 st.divider()
 
 with st.expander("📊 數據總表"):
