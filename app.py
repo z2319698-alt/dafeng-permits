@@ -9,15 +9,15 @@ st.set_page_config(page_title="大豐管理系統", layout="wide")
 # 2. 讀取數據
 URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=xlsx"
 
-@st.cache_data(ttl=30) # 縮短緩存時間，讓 Excel 更新更快同步
+@st.cache_data(ttl=30)
 def load_all_data():
     all_sh = pd.read_excel(URL, sheet_name=None)
     main_df = None
-    # 鎖定「各縣市審查管理辦法自主檢查表」分頁
+    # 鎖定檢查表分頁 (GID 846283148)
     attach_df = next((df for n, df in all_sh.items() if "檢查表" in n or "附件" in n), None)
     
     if attach_df is not None:
-        # 處理合併儲存格：補齊類型與項目，確保每一行附件都能對應到正確分類
+        # 處理合併儲存格：確保「類型」與「項目」每一行都有值
         attach_df.iloc[:, 0] = attach_df.iloc[:, 0].ffill()
         attach_df.iloc[:, 1] = attach_df.iloc[:, 1].ffill()
     
@@ -52,12 +52,12 @@ try:
     st.divider()
     raw_type = str(row[C_TYPE])
 
-    # 6. 第三層按鈕 (動態從檢查表分頁抓取該類型有哪些項目)
+    # 6. 第三層按鈕 (動態抓取項目)
+    acts_list = []
     if attach_db is not None:
-        # 找出該類型下所有的辦理項目 (例如變更、展延...)
         acts_list = attach_db[attach_db.iloc[:, 0].astype(str).str.contains(sel_t[:2], na=False)].iloc[:, 1].unique().tolist()
-    else:
-        acts_list = ["展延"]
+    
+    if not acts_list: acts_list = ["展延"]
 
     st.subheader("🛠️ 第三層：辦理項目選擇")
     cols = st.columns(len(acts_list))
@@ -69,19 +69,17 @@ try:
     # 7. 流程執行
     if st.session_state.get("last_p") == sel_n and "cur_a" in st.session_state:
         curr_act = st.session_state["cur_a"]
-        st.markdown(f"### 📍 目前選擇：**{curr_act}**")
+        st.markdown(f"### 📍 目前選擇項目：**{curr_act}**")
         
-        # 篩選該項目對應的所有列
+        # 篩選 Excel 資料行
         mask = (attach_db.iloc[:, 0].astype(str).str.contains(sel_t[:2], na=False)) & \
                (attach_db.iloc[:, 1].astype(str).str.contains(curr_act[:2], na=False))
         target_rows = attach_db[mask]
 
-        # 第一步：法規 (從 Excel 第 4 欄抓取)
+        # 第一步：法規依據 (讀取 Excel 第四欄 D 欄)
         with st.expander("⚖️ 第一步：法規依據條件確認", expanded=True):
-            laws_from_excel = target_rows.iloc[:, 3].dropna().unique().tolist()
-            if not laws_from_excel:
-                laws_from_excel = ["請參考縣市自主檢查表"]
-            sel_laws = [c for c in laws_from_excel if st.checkbox(c, key=f"l_{sel_n}_{curr_act}_{c}")]
+            laws_excel = target_rows.iloc[:, 3].dropna().unique().tolist()
+            selected_laws = [l for l in laws_excel if st.checkbox(l, key=f"law_{sel_n}_{curr_act}_{l}")]
         
         # 第二步：人員登錄
         with st.expander("👤 第二步：人員登錄", expanded=True):
@@ -90,31 +88,27 @@ try:
             u_date = c2.date_input("辦理日期", value=now, key=f"ud_{sel_n}")
             
             if u_name:
-                # 第三步：附件 (從 Excel 第 3 欄抓取)
+                # 第三步：應檢附附件 (讀取 Excel 第三欄 C 欄)
                 st.markdown("---")
                 st.subheader("📂 第三步：應檢附附件清單")
                 
-                attach_from_excel = target_rows.iloc[:, 2].dropna().unique().tolist()
+                attach_excel = target_rows.iloc[:, 2].dropna().unique().tolist()
+                checked_f = []
+                for item in attach_excel:
+                    ca, cb = st.columns([0.5, 0.5])
+                    if ca.checkbox(item, key=f"ck_{sel_n}_{curr_act}_{item}"):
+                        checked_f.append(item)
+                    cb.file_uploader("上傳", key=f"f_{sel_n}_{curr_act}_{item}", label_visibility="collapsed")
                 
-                if attach_from_excel:
-                    checked_f = []
-                    for item in attach_from_excel:
-                        ca, cb = st.columns([0.5, 0.5])
-                        if ca.checkbox(item, key=f"ck_{sel_n}_{curr_act}_{item}"):
-                            checked_f.append(item)
-                        cb.file_uploader("上傳", key=f"f_{sel_n}_{curr_act}_{item}", label_visibility="collapsed")
-                    
-                    # 第四步：發信
-                    st.divider()
-                    if st.button("🚀 提出申請並發信", use_container_width=True):
-                        info = f"單位：{sel_n}\n項目：{curr_act}\n辦理人：{u_name}\n條件：{', '.join(sel_laws)}\n附件：{', '.join(checked_f)}"
-                        sub_e = urllib.parse.quote(f"許可辦理申請：{sel_n}")
-                        body_e = urllib.parse.quote(info)
-                        st.markdown(f'<a href="mailto:andy.chen@df-recycle.com?subject={sub_e}&body={body_e}" style="background-color:#4CAF50;color:white;padding:12px;text-decoration:none;border-radius:5px;display:block;text-align:center;">📧 啟動郵件發送申請</a>', unsafe_allow_html=True)
-                else:
-                    st.warning("⚠️ 查無附件清單，請確認 Excel 第三欄內容。")
+                # 發信
+                st.divider()
+                if st.button("🚀 提出申請並發信", use_container_width=True):
+                    info = f"單位：{sel_n}\n項目：{curr_act}\n人員：{u_name}\n條件：{', '.join(selected_laws)}\n附件：{', '.join(checked_f)}"
+                    sub_e = urllib.parse.quote(f"許可辦理申請：{sel_n}")
+                    body_e = urllib.parse.quote(info)
+                    st.markdown(f'<a href="mailto:andy.chen@df-recycle.com?subject={sub_e}&body={body_e}" style="background-color:#4CAF50;color:white;padding:12px;text-decoration:none;border-radius:5px;display:block;text-align:center;">📧 啟動郵件發送</a>', unsafe_allow_html=True)
             else:
-                st.info("請輸入姓名以顯示附件清單。")
+                st.info("請輸入姓名以顯示第三步附件清單。")
 
 except Exception as e:
     st.error(f"系統錯誤: {e}")
