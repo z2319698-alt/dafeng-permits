@@ -5,7 +5,7 @@ from datetime import datetime as dt
 # 1. 配置
 st.set_page_config(page_title="大豐管理系統", layout="wide")
 
-# 2. 完整附件資料庫 (根據你的需求細化)
+# 2. 附件資料庫 (精準分類)
 DB = {
     "P": {
         "展延": ["清理計畫書(更新版)", "廢棄物合約影本", "負責人身分證影本"],
@@ -13,9 +13,9 @@ DB = {
         "異動": ["異動申請書", "相關證明文件"]
     },
     "C": {
-        "展延": ["原許可證正本", "車輛照片 (含排氣檢驗)", "駕駛員證照及勞保卡", "處置同意文件"],
+        "展延": ["原許可證正本", "車輛照片 (含排氣檢驗)", "駕駛員證照及勞保卡", "廢棄物處置同意文件"],
         "變更": ["變更申請表", "變更事項證明", "行照影本", "保險單影本"],
-        "變更暨展延": ["變更暨展延申請書", "全套更新版附件", "歷年清除量統計表", "切結書"]
+        "變更暨展延": ["變更暨展延申請表", "全套更新版附件", "歷年清除量統計表", "切結書"]
     }
 }
 
@@ -36,14 +36,14 @@ try:
     df['T'] = df[C_TYPE].fillna("一般管理")
     now = dt.now()
 
-    # 3. 跑馬燈警報
+    # 3. 頂部跑馬燈警報
     urgent = df[(df['D'] <= now + pd.Timedelta(days=180)) & (df['D'].notnull())]
     if not urgent.empty:
         m_items = [f"🚨 {r[C_NAME]}(剩{(r['D']-now).days}天)" for _,r in urgent.iterrows()]
         txt = "　　".join(m_items)
         st.markdown(f'<div style="background:#ff4b4b;color:white;padding:10px;border-radius:5px;"><marquee scrollamount="6">{txt}</marquee></div>', unsafe_allow_html=True)
 
-    # 4. 側邊選單
+    # 4. 側邊選單復原 (你原本的樣式)
     st.sidebar.markdown("## 📂 系統導航")
     t_list = sorted(df['T'].unique().tolist())
     sel_t = st.sidebar.selectbox("1. 選擇類型", t_list)
@@ -53,7 +53,7 @@ try:
     if sub.empty: st.stop()
     sel_n = st.sidebar.radio("2. 選擇許可證", sub[C_NAME].tolist())
 
-    # 5. 主畫面
+    # 5. 主畫面數據展示
     row = sub[sub[C_NAME] == sel_n].iloc[0]
     st.title(f"📄 {sel_n}")
     
@@ -66,33 +66,42 @@ try:
 
     st.divider()
 
-    # 6. 自動加載辦理項目
-    acts = DB["C"] if "清除" in str(sel_n) else (DB["P"] if "清理" in str(sel_n) or "計畫" in str(sel_n) else None)
+    # 6. 辦理項目 (解決不見的問題)
+    # 強制判斷類型，確保按鈕一定會出來
+    if "清除" in str(sel_n):
+        acts = DB["C"]
+    elif "清理" in str(sel_n) or "計畫" in str(sel_n):
+        acts = DB["P"]
+    else:
+        acts = None
 
     if acts:
         st.subheader("🛠️ 辦理項目指引")
-        # 如果尚未選擇動作，預設為第一個 (例如：展延)
-        if "cur_a" not in st.session_state or st.session_state.get("cur_p") != sel_n:
-            st.session_state["cur_a"] = list(acts.keys())[0]
-            st.session_state["cur_p"] = sel_n
+        # 預設動作為「展延」
+        if "cur_a" not in st.session_state or st.session_state.get("last_p") != sel_n:
+            st.session_state["cur_a"] = "展延"
+            st.session_state["last_p"] = sel_n
 
-        # 顯示切換按鈕
+        # 渲染橫排按鈕
         btn_cols = st.columns(len(acts))
         for i, a_name in enumerate(acts.keys()):
-            if btn_cols[i].button(a_name, key=f"b_{sel_n}_{a_name}", use_container_width=True):
+            if btn_cols[i].button(a_name, key=f"btn_{sel_n}_{a_name}", use_container_width=True):
                 st.session_state["cur_a"] = a_name
 
-        # 顯示內容
-        cur = st.session_state["cur_a"]
-        st.success(f"📍 當前項目：{cur}")
-        for f in acts[cur]:
-            st.checkbox(f, key=f"c_{sel_n}_{cur}_{f}")
+        # 顯示選中的勾選單
+        curr_act = st.session_state["cur_a"]
+        if curr_act in acts:
+            st.success(f"📍 正在辦理：{curr_act}")
+            for item in acts[curr_act]:
+                st.checkbox(item, key=f"chk_{sel_n}_{curr_act}_{item}")
     else:
-        st.info("💡 暫無指引內容。")
+        st.info("💡 該項目暫無辦理指引。")
 
 except Exception as e:
     st.error(f"錯誤: {e}")
 
+# 7. 原始數據 (呈現完整表格，不隱藏欄位)
 st.divider()
-with st.expander("📊 原始數據"):
-    st.dataframe(df[[C_NAME, C_DATE, C_TYPE]])
+st.subheader("📊 原始數據總表")
+with st.expander("展開查看完整 Excel 表格"):
+    st.dataframe(df, use_container_width=True)
