@@ -1,52 +1,61 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 
 st.set_page_config(page_title="環保證照管理系統", layout="wide")
 
-# ===== Google Sheet 位置 =====
 URL = (
     "https://docs.google.com/spreadsheets/d/"
     "1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE"
     "/export?format=xlsx"
 )
 
-# ===== 讀取「就是你截圖那一張表」=====
+SHEET_NAME = "大豐既有許可證到期提醒"  # ✅ 你提供的分頁名稱
+
+# ===== 讀取正確分頁 =====
 @st.cache_data(show_spinner=False)
 def load_main_table():
-    df = pd.read_excel(URL)  # 不指定 sheet，預設第一張（你截圖那張）
+    df = pd.read_excel(URL, sheet_name=SHEET_NAME)
     return df
 
 df = load_main_table()
 
-# ===== 基本清理（非常重要）=====
-df["許可證名稱"] = df["許可證名稱"].astype(str).str.strip()
-df["許可證類型"] = df["許可證類型"].astype(str).str.strip()
-df["到期日期"] = pd.to_datetime(df["到期日期"], errors="coerce")
+# ===== 欄位清理（避免前後空白/全形半形）=====
+df.columns = df.columns.astype(str).str.strip()
+for col in ["許可證類型", "許可證名稱", "管制編號"]:
+    if col in df.columns:
+        df[col] = df[col].astype(str).str.strip()
 
-# ===== Sidebar =====
+if "到期日期" in df.columns:
+    df["到期日期"] = pd.to_datetime(df["到期日期"], errors="coerce")
+
+# ===== 必要欄位檢查（缺欄就直接告警）=====
+need_cols = ["許可證類型", "許可證名稱", "管制編號", "到期日期"]
+missing = [c for c in need_cols if c not in df.columns]
+if missing:
+    st.error(f"❌ 讀到的分頁缺少欄位：{missing}\n\n實際欄位：{df.columns.tolist()}")
+    st.stop()
+
+# ===== Sidebar：選類型 -> 選許可證 =====
 st.sidebar.markdown("## 📂 系統導航")
 
 sel_type = st.sidebar.selectbox(
     "選擇類型",
-    sorted(df["許可證類型"].unique())
+    sorted(df["許可證類型"].dropna().unique().tolist())
 )
 
-sub_df = df[df["許可證類型"] == sel_type]
+sub_df = df[df["許可證類型"] == sel_type].copy()
 
 sel_name = st.sidebar.radio(
     "選擇許可證",
-    sub_df["許可證名稱"].tolist()
+    sub_df["許可證名稱"].dropna().tolist()
 )
 
-# ===== 主畫面 =====
+# ===== 主畫面：你要的「中間跳出資料」=====
 st.title(f"📄 {sel_name}")
 
-# ===== 核心：直接顯示數據總表資料 =====
 row = sub_df[sub_df["許可證名稱"] == sel_name]
-
 if row.empty:
-    st.error("❌ 找不到對應的許可證資料（名稱不一致）")
+    st.error("❌ 找不到對應的許可證資料（名稱可能有空白或不一致）")
 else:
     r = row.iloc[0]
 
@@ -58,10 +67,11 @@ else:
         st.metric("管制編號", r["管制編號"])
 
     with c2:
-        if pd.notna(r["到期日期"]):
-            st.metric(
-                "到期日期",
-                r["到期日期"].strftime("%Y-%m-%d")
-            )
-        else:
-            st.metric("到期日期", "未設定")
+        st.metric(
+            "到期日期",
+            r["到期日期"].strftime("%Y-%m-%d") if pd.notna(r["到期日期"]) else "未設定"
+        )
+
+# （可選）讓你確認目前類型下有哪些資料
+with st.expander("📊 本類型資料（除錯用，可關閉）"):
+    st.dataframe(sub_df, use_container_width=True, hide_index=True)
