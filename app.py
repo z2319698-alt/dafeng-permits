@@ -31,10 +31,10 @@ try:
     urgent = df[(df['D_OBJ'] <= now + pd.Timedelta(days=180)) & (df['D_OBJ'].notnull())]
     if not urgent.empty:
         m_txt = "　　".join([f"🚨 {r[C_NAME]}(剩{(r['D_OBJ']-now).days}天)" for _,r in urgent.iterrows()])
-        st.markdown(f'<div style="background:#ff4b4b;color:white;padding:10px;border-radius:5px;"><marquee scrollamount="6">{m_txt}</marquee></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#ff4b4b;color:white;padding:10px;border-radius:5px;"><marquee scrollamount="6">{m_txt}</marquee></div>', unsafe_allow_True=True)
 
     # 側邊選單
-    st.sidebar.markdown("## 📂 系統導航")
+    st.sidebar.markdown("## 📂 系統導覽")
     t_list = sorted(df[C_TYPE].dropna().unique().tolist())
     sel_t = st.sidebar.selectbox("1. 選擇類型", t_list)
     sub = df[df[C_TYPE] == sel_t].reset_index(drop=True)
@@ -43,7 +43,7 @@ try:
     st.title(f"📄 {sel_n}")
     st.divider()
 
-    # --- 第三層按鈕：辦理項目 (B 欄) ---
+    # --- 第三層按鈕 (B 欄) ---
     if attach_db is not None:
         type_rows = attach_db[attach_db.iloc[:, 0] == sel_t]
         acts_list = type_rows.iloc[:, 1].unique().tolist()
@@ -54,12 +54,12 @@ try:
             btn_cols = st.columns(len(acts_list))
             for i, a in enumerate(acts_list):
                 if btn_cols[i].button(a, key=f"btn_{sel_n}_{a}", use_container_width=True):
-                    # 【關鍵改動】切換按鈕時，清空所有勾選狀態
-                    for key in list(st.session_state.keys()):
-                        if key.startswith("chk_") or key.startswith("law_"):
-                            del st.session_state[key]
+                    # 【核心】點擊不同項目按鈕時，立刻清空之前的勾選狀態
                     st.session_state["cur_a"] = a
                     st.session_state["last_p"] = sel_n
+                    # 清除所有第一步與第三步的 checkbox 狀態
+                    keys_to_del = [k for k in st.session_state.keys() if "law_idx_" in k or "file_check_" in k]
+                    for k in keys_to_del: del st.session_state[k]
                     st.rerun()
 
             if st.session_state.get("last_p") == sel_n and "cur_a" in st.session_state:
@@ -73,8 +73,8 @@ try:
                     for idx, row in target_rows.iterrows():
                         law_text = row.iloc[2]
                         if law_text.lower() != 'nan' and law_text != '':
-                            # 勾選框，key 綁定列索引 idx
-                            if st.checkbox(law_text, key=f"law_idx_{idx}"):
+                            # 勾選框，key 綁定該項目的索引
+                            if st.checkbox(law_text, key=f"law_idx_{sel_n}_{curr_act}_{idx}"):
                                 selected_indices.append(idx)
 
                 # --- 第二步：人員登錄 ---
@@ -87,29 +87,5 @@ try:
                     st.subheader("📂 第三步：應檢附附件清單")
                     
                     if selected_indices:
-                        # 【核心連動】只拿勾選列的附件欄位
+                        # 【核心連動】只拿勾選列的附件欄位 D-I (index 3-8)
                         selected_rows = attach_db.loc[selected_indices]
-                        files_raw = selected_rows.iloc[:, 3:9].values.flatten()
-                        final_files = list(dict.fromkeys([str(f).strip() for f in files_raw if pd.notnull(f) and str(f).lower() != 'nan' and str(f) != '']))
-                        
-                        if final_files:
-                            checked_f = []
-                            for f_idx, f_name in enumerate(final_files):
-                                ca, cb = st.columns([0.6, 0.4])
-                                if ca.checkbox(f_name, key=f"file_check_{f_idx}"):
-                                    checked_f.append(f_name)
-                                cb.file_uploader("上傳", key=f"up_{f_idx}", label_visibility="collapsed")
-                            
-                            st.divider()
-                            if st.button("🚀 提出申請並發信", use_container_width=True):
-                                info = f"單位：{sel_n}\n項目：{curr_act}\n人員：{u_name}\n附件：{', '.join(checked_f)}"
-                                sub_e = urllib.parse.quote(f"許可申請：{sel_n}")
-                                body_e = urllib.parse.quote(info)
-                                st.markdown(f'<a href="mailto:andy.chen@df-recycle.com?subject={sub_e}&body={body_e}" style="background-color:#4CAF50;color:white;padding:12px;text-decoration:none;border-radius:5px;display:block;text-align:center;">📧 啟動郵件</a>', unsafe_allow_html=True)
-                    else:
-                        st.info("💡 請在上方「第一步」勾選需要辦理的具體條件。")
-        else:
-            st.info("此類型無須透過自主檢查表辦理。")
-
-except Exception as e:
-    st.error(f"系統錯誤: {e}")
