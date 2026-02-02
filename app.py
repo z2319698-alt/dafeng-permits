@@ -50,7 +50,6 @@ try:
     st.write("---")
 
     # --- 📂 側邊選單 ---
-    # 這裡新增回首頁按鈕，其餘完全不動
     st.sidebar.markdown("## 🏠 系統首頁")
     if st.sidebar.button("回到首頁畫面", use_container_width=True):
         st.session_state.selected_actions = set()
@@ -80,7 +79,7 @@ try:
     
     st.divider()
 
-    # --- 6. 第一步：橫向按鈕複選區 ---
+    # --- 6. 第一步：項目選取 ---
     db_info = file_df[file_df.iloc[:, 0] == sel_type]
     options = db_info.iloc[:, 1].dropna().unique().tolist()
 
@@ -90,4 +89,27 @@ try:
             st.session_state.selected_actions = set()
 
         cols = st.columns(len(options))
-        for
+        for i, option in enumerate(options):
+            is_active = option in st.session_state.selected_actions
+            if cols[i].button(option, key=f"btn_{option}", use_container_width=True, 
+                              type="primary" if is_active else "secondary"):
+                if is_active: st.session_state.selected_actions.remove(option)
+                else: st.session_state.selected_actions.add(option)
+                st.rerun()
+
+        # --- 7. 第二步：填寫與上傳 ---
+        current_list = st.session_state.selected_actions
+        if current_list:
+            st.divider()
+            st.markdown("### 📝 第二步：填寫申請資訊與附件")
+            c1, c2 = st.columns(2)
+            with c1: user_name = st.text_input("👤 申請人姓名", placeholder="請輸入姓名")
+            with c2: apply_date = st.date_input("📅 提出申請日期", value=date.today())
+
+            final_attachments = set()
+            for action in current_list:
+                action_row = db_info[db_info.iloc[:, 1] == action]
+                if not action_row.empty:
+                    # 抓取該項目之後的所有附件欄位
+                    att_list = action_row.iloc[0, 3:].dropna().tolist()
+                    for item in att_list:
