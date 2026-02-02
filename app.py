@@ -24,13 +24,15 @@ try:
     main_df, file_df, logs_df = load_data()
     today = pd.Timestamp(date.today())
 
-    # --- 🏆 1. 跑馬燈區 ---
-    temp_df = main_df.copy()
-    temp_df.iloc[:, 3] = pd.to_datetime(temp_df.iloc[:, 3], errors='coerce')
-    upcoming = temp_df[(temp_df.iloc[:, 3].notna()) & (temp_df.iloc[:, 3] <= today + timedelta(days=90)) & (temp_df.iloc[:, 3] >= today)]
+    # --- 🏆 1. 跑馬燈區 (保證出現版) ---
+    # 先將日期轉為 Datetime 格式
+    marquee_df = main_df.copy()
+    marquee_df.iloc[:, 3] = pd.to_datetime(marquee_df.iloc[:, 3], errors='coerce')
+    # 篩選 90 天內到期的
+    upcoming = marquee_df[(marquee_df.iloc[:, 3].notna()) & (marquee_df.iloc[:, 3] <= today + timedelta(days=90)) & (marquee_df.iloc[:, 3] >= today)]
     
     if not upcoming.empty:
-        marquee_items = [f"⚠️ {row.iloc[2]} 即將於 {row.iloc[3].strftime('%Y-%m-%d')} 到期" for _, row in upcoming.iterrows()]
+        marquee_items = [f"⚠️ {row.iloc[2]} 將於 {row.iloc[3].strftime('%Y-%m-%d')} 到期" for _, row in upcoming.iterrows()]
         marquee_text = "　　　　".join(marquee_items)
         st.markdown(f"""
             <div style="background-color: #FFF3E0; padding: 12px; border-radius: 8px; border: 2px solid #FFB74D; margin-bottom: 20px;">
@@ -38,15 +40,19 @@ try:
             </div>
         """, unsafe_allow_html=True)
 
-    # --- 2. 側邊欄與資料篩選 ---
-    st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
+    # --- 2. 側邊欄 (按鈕與篩選器) ---
     st.sidebar.markdown("## 🏠 系統選單")
+    # 補回首頁按鈕
+    if st.sidebar.button("🏠 回到首頁畫面", use_container_width=True):
+        st.session_state.selected_actions = set()
+        st.rerun()
     
+    st.sidebar.divider()
     sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
     sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
     sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
 
-    # --- 3. 狀態判定邏輯 ---
+    # --- 3. 狀態判定與詳細資訊 ---
     def get_display_status(permit_name):
         if logs_df.empty: return "未提送"
         my_logs = logs_df[logs_df["許可證名稱"] == permit_name]
@@ -63,11 +69,14 @@ try:
     current_p_status = get_display_status(sel_name)
     target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
     permit_id = str(target_main.iloc[1])
-    expiry_display = pd.to_datetime(target_main.iloc[3]).strftime('%Y-%m-%d') if not pd.isna(target_main.iloc[3]) else "無日期"
+    try:
+        expiry_val = pd.to_datetime(target_main.iloc[3]).strftime('%Y-%m-%d')
+    except:
+        expiry_val = str(target_main.iloc[3])
 
-    # --- 4. 單一證照詳細資訊與申請 ---
+    st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
     st.title(f"📄 {sel_name}")
-    st.error(f"📅 許可證到期日期：{expiry_display}")
+    st.error(f"📅 許可證到期日期：{expiry_val}")
     
     status_color = "gray"
     if current_p_status == "已核准": status_color = "green"
@@ -76,7 +85,7 @@ try:
     
     st.divider()
 
-    # 辦理項目
+    # --- 4. 辦理項目申請區 ---
     db_info = file_df[file_df.iloc[:, 0] == sel_type]
     options = db_info.iloc[:, 1].dropna().unique().tolist()
     if options:
@@ -102,13 +111,16 @@ try:
                     st.session_state.selected_actions = set()
                     st.rerun()
 
-    # --- 🏆 5. 最下方的完整總表 ---
-    st.divider()
-    st.subheader("📊 許可證完整資料總覽")
-    # 格式化日期以便閱讀
-    display_df = main_df.copy()
-    display_df.iloc[:, 3] = pd.to_datetime(display_df.iloc[:, 3], errors='coerce').dt.strftime('%Y-%m-%d')
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    # --- 🏆 5. 收放式總表 (Expander) ---
+    st.write("")
+    with st.expander("📊 點擊展開/收合：許可證完整資料總覽", expanded=False):
+        display_df = main_df.copy()
+        # 嘗試格式化日期列
+        try:
+            display_df.iloc[:, 3] = pd.to_datetime(display_df.iloc[:, 3], errors='coerce').dt.strftime('%Y-%m-%d')
+        except:
+            pass
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"系統連線或資料格式異常: {e}")
+    st.error(f"系統錯誤: {e}")
