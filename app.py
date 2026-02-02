@@ -20,6 +20,22 @@ def load_all_data():
 try:
     main_df, file_df = load_all_data()
 
+    # --- 📢 跑馬燈功能 (置頂) ---
+    # 篩選出 90 天內到期的許可證作為提醒
+    main_df['到期日期'] = pd.to_datetime(main_df.iloc[:, 3], errors='coerce')
+    today = pd.Timestamp(date.today())
+    upcoming = main_df[main_df['到期日期'] <= today + pd.Timedelta(days=90)]
+    
+    if not upcoming.empty:
+        # 組合跑馬燈文字
+        marquee_text = " | ".join([f"⚠️ {row.iloc[2]} 即將於 {str(row.iloc[3])[:10]} 到期" for _, row in upcoming.iterrows()])
+        st.markdown(f"""
+            <div style="background-color: #FFF3E0; padding: 10px; border-radius: 5px; border-left: 5px solid #FF9800; overflow: hidden; white-space: nowrap;">
+                <marquee scrollamount="5" style="color: #E65100; font-weight: bold;">{marquee_text}</marquee>
+            </div>
+        """, unsafe_allow_html=True)
+        st.write("")
+
     # --- 🌟 最頂層大標題 ---
     st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
     st.write("---")
@@ -72,7 +88,6 @@ try:
             with c2:
                 apply_date = st.date_input("📅 提出申請日期", value=date.today())
 
-            # 合併附件去重
             final_attachments = set()
             for action in current_list:
                 action_row = db_info[db_info.iloc[:, 1] == action]
@@ -88,10 +103,8 @@ try:
 
             st.divider()
 
-            # --- 8. 提出申請按鈕 (已修正寬度) ---
+            # --- 8. 提出申請按鈕 ---
             st.markdown("### 📤 第三步：確認並送出")
-            
-            # 移除 use_container_width=True，讓按鈕回縮到文字長度
             if st.button("🚀 提出申請", type="primary"):
                 if not user_name:
                     st.warning("⚠️ 請先填寫申請人姓名！")
@@ -103,14 +116,15 @@ try:
                             f"附件清單如下：\n" + "\n".join([f"- {f}" for f in final_attachments]))
                     
                     mailto_link = f"mailto:andy.chen@df-recycle.com?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
-                    
                     st.success("✅ 申請資訊彙整完畢！")
-                    # 同樣讓這個按鈕也縮短
                     st.link_button("📧 開啟郵件軟體發送給 Andy", mailto_link)
         else:
             st.write("👆 請點擊上方橫向按鈕選擇辦理項目。")
-    else:
-        st.warning(f"⚠️ 找不到該類型的辦理資料。")
+    
+    # --- 📊 9. 總表恢復區 (置底) ---
+    st.write("---")
+    with st.expander("📊 查看許可證管理總表 (完整明細)"):
+        st.dataframe(main_df.drop(columns=['到期日期']), use_container_width=True, hide_index=True)
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
