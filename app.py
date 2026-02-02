@@ -61,7 +61,7 @@ try:
     sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
     sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
 
-    # --- 4. 抓取當前選擇資料 ---
+    # --- 4. 抓取資料 ---
     target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
     permit_id = str(target_main.iloc[1])
     expiry_date = str(target_main.iloc[3])
@@ -79,7 +79,7 @@ try:
     
     st.divider()
 
-    # --- 6. 第一步：項目選取 ---
+    # --- 6. 項目選取 ---
     db_info = file_df[file_df.iloc[:, 0] == sel_type]
     options = db_info.iloc[:, 1].dropna().unique().tolist()
 
@@ -110,6 +110,10 @@ try:
             for action in current_list:
                 action_row = db_info[db_info.iloc[:, 1] == action]
                 if not action_row.empty:
-                    # 抓取該項目之後的所有附件欄位
+                    # ✅ 修正：確保此迴圈內的縮進正確
                     att_list = action_row.iloc[0, 3:].dropna().tolist()
                     for item in att_list:
+                        final_attachments.add(str(item).strip())
+
+            st.write("**📋 附件上傳區：**")
+            for item in sorted(list(final_
