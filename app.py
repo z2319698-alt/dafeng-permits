@@ -45,24 +45,20 @@ try:
     st.write("---")
 
     # --- 📂 側邊選單 ---
-    st.sidebar.markdown("## 🏠 系統首頁")
-    # 🌟 新增：首頁重置按鈕
+    # 🌟 左側欄最上方的首頁重置功能
+    st.sidebar.markdown("### 🏠 系統首頁")
     if st.sidebar.button("回到首頁畫面", use_container_width=True):
-        # 清除所有選擇狀態並重新整理
         st.session_state.selected_actions = set()
         st.rerun()
     
     st.sidebar.divider()
-    st.sidebar.markdown("## 📂 系統導覽")
+    st.sidebar.markdown("### 📂 系統導覽")
     
-    # 類型選擇
     sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
     sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
-    
-    # 許可證選擇
     sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
 
-    # --- 4. 抓取當前選擇資料 ---
+    # --- 4. 抓取當前資料 ---
     target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
     permit_id = str(target_main.iloc[1])
     expiry_date = str(target_main.iloc[3])
@@ -76,40 +72,4 @@ try:
     elif "準備辦理" in current_status:
         st.warning(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_status}")
     else:
-        st.info(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_status}")
-    
-    st.divider()
-
-    # --- 6. 第一步：辦理項目按鈕 ---
-    db_info = file_df[file_df.iloc[:, 0] == sel_type]
-    options = db_info.iloc[:, 1].dropna().unique().tolist()
-
-    if options:
-        st.subheader("🛠️ 第一步：選擇辦理項目 (可多選)")
-        if "selected_actions" not in st.session_state:
-            st.session_state.selected_actions = set()
-
-        cols = st.columns(len(options))
-        for i, option in enumerate(options):
-            is_active = option in st.session_state.selected_actions
-            if cols[i].button(option, key=f"btn_{option}", use_container_width=True, 
-                              type="primary" if is_active else "secondary"):
-                if is_active: st.session_state.selected_actions.remove(option)
-                else: st.session_state.selected_actions.add(option)
-                st.rerun()
-
-        # --- 7. 第二步：填寫資訊與上傳 ---
-        current_list = st.session_state.selected_actions
-        if current_list:
-            st.divider()
-            st.markdown("### 📝 第二步：填寫申請資訊與附件")
-            c1, c2 = st.columns(2)
-            with c1: user_name = st.text_input("👤 申請人姓名", placeholder="請輸入姓名")
-            with c2: apply_date = st.date_input("📅 提出申請日期", value=date.today())
-
-            final_attachments = set()
-            for action in current_list:
-                action_row = db_info[db_info.iloc[:, 1] == action]
-                if not action_row.empty:
-                    attachments = action_row.iloc[0, 3:].dropna().tolist()
-                    for item in attachments: final_attachments.add(
+        st.info(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_
