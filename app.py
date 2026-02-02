@@ -21,21 +21,26 @@ try:
     main_df, file_df = load_all_data()
     today = pd.Timestamp(date.today())
 
-    # --- 核心判定邏輯：強制同步狀態 ---
-    # 假設 D 欄是到期日期，H 欄是原本的狀態
+    # --- 核心判定邏輯：新增「準備辦理」狀態 ---
     main_df['判斷日期'] = pd.to_datetime(main_df.iloc[:, 3], errors='coerce')
     
     def get_real_status(row_date):
         if pd.isna(row_date): return "未設定"
-        return "✅ 有效" if row_date >= today else "❌ 已過期"
+        if row_date < today:
+            return "❌ 已過期"
+        # 🌟 關鍵修正：提前半年 (180天) 提醒
+        elif row_date <= today + pd.Timedelta(days=180):
+            return "⚠️ 準備辦理"
+        else:
+            return "✅ 有效"
 
-    # 直接計算出最新的狀態
+    # 計算最新狀態
     main_df['最新狀態'] = main_df['判斷日期'].apply(get_real_status)
 
-    # --- 📢 跑馬燈功能 ---
-    upcoming = main_df[main_df['判斷日期'] <= today + pd.Timedelta(days=90)]
+    # --- 📢 跑馬燈功能 (現在包含準備辦理的提醒) ---
+    upcoming = main_df[main_df['最新狀態'].isin(["❌ 已過期", "⚠️ 準備辦理"])]
     if not upcoming.empty:
-        marquee_text = " | ".join([f"⚠️ {row.iloc[2]} {row['最新狀態']} (到期日: {str(row.iloc[3])[:10]})" for _, row in upcoming.iterrows()])
+        marquee_text = " | ".join([f"{row['最新狀態']}：{row.iloc[2]} (到期日: {str(row.iloc[3])[:10]})" for _, row in upcoming.iterrows()])
         st.markdown(f"""
             <div style="background-color: #FFF3E0; padding: 10px; border-radius: 5px; border-left: 5px solid #FF9800; overflow: hidden; white-space: nowrap;">
                 <marquee scrollamount="5" style="color: #E65100; font-weight: bold;">{marquee_text}</marquee>
@@ -56,14 +61,15 @@ try:
     target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
     permit_id = str(target_main.iloc[1])
     expiry_date = str(target_main.iloc[3])
-    # 這裡抓取系統算出來的最新狀態
     current_status = get_real_status(pd.to_datetime(expiry_date, errors='coerce'))
     clean_date = expiry_date[:10] if expiry_date != 'nan' else "未設定"
 
-    # --- 5. 資訊條呈現 ---
+    # --- 5. 資訊條呈現 (新增黃色提醒色) ---
     st.title(f"📄 {sel_name}")
     if "已過期" in current_status:
         st.error(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_status}")
+    elif "準備辦理" in current_status:
+        st.warning(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_status}")
     else:
         st.info(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_status}")
     
@@ -121,20 +127,15 @@ try:
                     st.success("✅ 申請資訊彙整完畢！")
                     st.link_button("📧 開啟郵件軟體發送給 Andy", mailto_link)
 
-    # --- 📊 9. 總表恢復區 (修正狀態顯示) ---
+    # --- 📊 9. 總表恢復區 (強制同步最新狀態) ---
     st.write("---")
     with st.expander("📊 查看許可證管理總表"):
-        # 這裡做一個動作：把原本 Excel 裡的「狀態」欄位換成我們算出來的「最新狀態」
         final_display = main_df.copy()
-        
-        # 假設狀態原本在第 8 欄 (索引 7)，我們直接用最新狀態蓋掉它
-        # 這樣你就不用改 Excel，網頁上看到的永遠是準確的
+        # 強制蓋掉 Excel 原有的狀態欄位
         if len(final_display.columns) > 7:
             final_display.iloc[:, 7] = final_display['最新狀態']
         
-        # 移除輔助欄位不顯示
         final_display = final_display.drop(columns=['判斷日期', '最新狀態'])
-        
         st.dataframe(final_display, use_container_width=True, hide_index=True)
 
 except Exception as e:
