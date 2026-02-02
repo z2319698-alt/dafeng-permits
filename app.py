@@ -13,8 +13,8 @@ st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide"
 # 2. 建立連線
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 💡 分開讀取：主表與紀錄表
-@st.cache_data(ttl=5)
+# 💡 修正：增加 ttl 時間，避免觸發 429 錯誤
+@st.cache_data(ttl=10)
 def load_main_data():
     main_df = conn.read(worksheet="大豐既有許可證到期提醒")
     file_df = conn.read(worksheet="附件資料庫")
@@ -22,19 +22,21 @@ def load_main_data():
     file_df.columns = [str(c).strip() for c in file_df.columns]
     return main_df, file_df
 
-def load_logs_no_cache():
+# 💡 修正：不要用 ttl=0，改用 ttl=5 讓申請紀錄也能排隊讀取
+@st.cache_data(ttl=5)
+def load_logs():
     try:
-        df = conn.read(worksheet="申請紀錄", ttl=0)
+        df = conn.read(worksheet="申請紀錄")
         return df.dropna(how='all')
     except:
         return pd.DataFrame(columns=["許可證名稱", "申請人", "申請日期", "狀態", "核准日期"])
 
 try:
     main_df, file_df = load_main_data()
-    logs_df = load_logs_no_cache()
+    logs_df = load_logs()
     today = pd.Timestamp(date.today())
 
-    # --- 核心判定邏輯 (用於資訊條顏色判定) ---
+    # --- 核心判定邏輯 ---
     main_df['判斷日期'] = pd.to_datetime(main_df.iloc[:, 3], errors='coerce')
     def get_real_status(row_date):
         if pd.isna(row_date): return "未設定"
@@ -57,7 +59,7 @@ try:
 
     main_df['最新狀態'] = main_df['判斷日期'].apply(get_real_status)
 
-    # --- 📢 跑馬燈功能 (原封不動) ---
+    # --- 📢 跑馬燈 ---
     upcoming = main_df[main_df['最新狀態'].isin(["❌ 已過期", "⚠️ 準備辦理"])]
     if not upcoming.empty:
         marquee_text = " | ".join([f"{row['最新狀態']}：{row.iloc[2]} (到期日: {str(row.iloc[3])[:10]})" for _, row in upcoming.iterrows()])
@@ -68,6 +70,12 @@ try:
 
     # --- 📂 側邊選單 ---
     st.sidebar.markdown("## 🏠 系統首頁")
+    
+    # 💡 修正：增加一個清除快取的按鈕，資料不動時點一下就好
+    if st.sidebar.button("🔄 刷新資料庫", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
     if st.sidebar.button("回到首頁畫面", use_container_width=True):
         st.session_state.selected_actions = set()
         st.rerun()
@@ -129,9 +137,9 @@ try:
                 if not user_name:
                     st.warning("⚠️ 請填寫姓名！")
                 else:
-                    real_time_logs = load_logs_no_cache()
+                    # 💡 這裡為了防 429，不重複 load_logs_no_cache
                     new_row = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user_name, "申請日期": date.today().strftime("%Y-%m-%d"), "狀態": "已提送需求", "核准日期": ""}])
-                    updated_logs = pd.concat([real_time_logs, new_row], ignore_index=True)
+                    updated_logs = pd.concat([logs_df, new_row], ignore_index=True)
                     conn.update(worksheet="申請紀錄", data=updated_logs)
                     
                     subject = f"【許可證申請】{sel_name}_{user_name}_{apply_date}"
@@ -147,6 +155,7 @@ try:
                             server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
                         st.balloons()
                         st.success("✅ 申請成功！紀錄已累加至 Excel 並發信。")
+                        st.cache_data.clear() # 💡 申請完後清除快取
                         time.sleep(2)
                     except Exception as e:
                         st.error(f"郵件失敗但紀錄已存：{e}")
@@ -154,18 +163,13 @@ try:
                     st.session_state.selected_actions = set()
                     st.rerun()
 
-    # --- 📊 總表部分 (修改點：完全連動 Excel 第一頁，不進行狀態覆蓋) ---
     st.write("---")
     with st.expander("📊 查看許可證管理總表"):
-        # 直接使用從第一分頁讀取的 main_df 原始資料
         final_display = main_df.copy()
-        
-        # 移除程式計算用的輔助欄位
         if '判斷日期' in final_display.columns:
             final_display = final_display.drop(columns=['判斷日期'])
         if '最新狀態' in final_display.columns:
             final_display = final_display.drop(columns=['最新狀態'])
-            
         st.dataframe(final_display, use_container_width=True, hide_index=True)
 
 except Exception as e:
