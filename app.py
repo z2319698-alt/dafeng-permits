@@ -28,14 +28,16 @@ try:
         if pd.isna(row_date): return "未設定"
         if row_date < today:
             return "❌ 已過期"
+        # 🌟 關鍵修正：提前半年 (180天) 提醒
         elif row_date <= today + pd.Timedelta(days=180):
             return "⚠️ 準備辦理"
         else:
             return "✅ 有效"
 
+    # 計算最新狀態
     main_df['最新狀態'] = main_df['判斷日期'].apply(get_real_status)
 
-    # --- 📢 跑馬燈功能 ---
+    # --- 📢 跑馬燈功能 (現在包含準備辦理的提醒) ---
     upcoming = main_df[main_df['最新狀態'].isin(["❌ 已過期", "⚠️ 準備辦理"])]
     if not upcoming.empty:
         marquee_text = " | ".join([f"{row['最新狀態']}：{row.iloc[2]} (到期日: {str(row.iloc[3])[:10]})" for _, row in upcoming.iterrows()])
@@ -45,8 +47,8 @@ try:
             </div>
         """, unsafe_allow_html=True)
 
-    # --- 🌟 大標題 (已加入 🏠 首頁圖示) ---
-    st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🏠 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
+    # --- 🌟 大標題 ---
+    st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
     st.write("---")
 
     # --- 3. 側邊選單 ---
@@ -62,7 +64,7 @@ try:
     current_status = get_real_status(pd.to_datetime(expiry_date, errors='coerce'))
     clean_date = expiry_date[:10] if expiry_date != 'nan' else "未設定"
 
-    # --- 5. 資訊條呈現 ---
+    # --- 5. 資訊條呈現 (新增黃色提醒色) ---
     st.title(f"📄 {sel_name}")
     if "已過期" in current_status:
         st.error(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_status}")
@@ -73,7 +75,7 @@ try:
     
     st.divider()
 
-    # --- 6. 第一步：橫向按鈕複選區 ---
+    # --- 6~8. 選單與上傳功能 (維持原樣) ---
     db_info = file_df[file_df.iloc[:, 0] == sel_type]
     options = db_info.iloc[:, 1].dropna().unique().tolist()
 
@@ -124,13 +126,12 @@ try:
                     mailto_link = f"mailto:andy.chen@df-recycle.com?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
                     st.success("✅ 申請資訊彙整完畢！")
                     st.link_button("📧 開啟郵件軟體發送給 Andy", mailto_link)
-        else:
-            st.write("👆 請點擊上方橫向按鈕選擇辦理項目。")
-    
-    # --- 📊 9. 總表恢復區 ---
+
+    # --- 📊 9. 總表恢復區 (強制同步最新狀態) ---
     st.write("---")
     with st.expander("📊 查看許可證管理總表"):
         final_display = main_df.copy()
+        # 強制蓋掉 Excel 原有的狀態欄位
         if len(final_display.columns) > 7:
             final_display.iloc[:, 7] = final_display['最新狀態']
         
