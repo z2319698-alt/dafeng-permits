@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-import urllib.parse
 import smtplib
-import time  # 💡 為了讓彩帶飛一下
+import time
 from email.mime.text import MIMEText
 from email.header import Header
 from streamlit_gsheets import GSheetsConnection
@@ -11,41 +10,31 @@ from streamlit_gsheets import GSheetsConnection
 # 1. 頁面基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 
-# 2. 資料來源
+# 2. 建立連線
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# 💡 主表用快取節省效能
 @st.cache_data(ttl=5)
-def load_all_data():
+def load_main_data():
     main_df = conn.read(worksheet="大豐既有許可證到期提醒")
     file_df = conn.read(worksheet="附件資料庫")
-    try:
-        # 讀取現有紀錄，並清除全空行
-        logs_df = conn.read(worksheet="申請紀錄")
-        logs_df = logs_df.dropna(how='all')
-    except:
-        logs_df = pd.DataFrame(columns=["許可證名稱", "申請人", "申請日期", "狀態", "核准日期"])
-    
     main_df.columns = [str(c).strip() for c in main_df.columns]
     file_df.columns = [str(c).strip() for c in file_df.columns]
-    return main_df, file_df, logs_df
+    return main_df, file_df
 
-# --- 自動發信函式 ---
-def send_auto_email(subject, body):
+# 💡 紀錄表「絕對不可」用快取，ttl=0 強制每次重新抓取
+def load_logs_no_cache():
     try:
-        msg = MIMEText(body, 'plain', 'utf-8')
-        msg['Subject'] = Header(subject, 'utf-8')
-        msg['From'] = st.secrets["email"]["sender"]
-        msg['To'] = st.secrets["email"]["receiver"]
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
-            server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
-        return True
-    except Exception as e:
-        st.error(f"❌ 郵件發送失敗：{e}")
-        return False
+        # 強制不使用快取，確保看到最新的一行
+        df = conn.read(worksheet="申請紀錄", ttl=0)
+        return df.dropna(how='all')
+    except:
+        return pd.DataFrame(columns=["許可證名稱", "申請人", "申請日期", "狀態", "核准日期"])
 
 try:
-    main_df, file_df, logs_df = load_all_data()
+    main_df, file_df = load_main_data()
+    # 這裡讀取的紀錄僅供畫面顯示
+    logs_df = load_logs_no_cache()
     today = pd.Timestamp(date.today())
 
     # --- 核心判定邏輯 ---
@@ -86,6 +75,7 @@ try:
         st.rerun()
     
     st.sidebar.divider()
+    st.sidebar.markdown("## 📂 系統導覽")
     sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
     sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
     sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
@@ -142,31 +132,45 @@ try:
                 if not user_name:
                     st.warning("⚠️ 請填寫姓名！")
                 else:
-                    # 💡 A. 寫入 Excel (修正：將新資料與舊資料合併後一起寫回)
-                    new_log = pd.DataFrame([{
+                    # 💡 重點修正：寫入按鈕按下的瞬間，才去抓最真實的 Excel 舊紀錄
+                    real_time_logs = load_logs_no_cache()
+                    
+                    new_row = pd.DataFrame([{
                         "許可證名稱": sel_name,
                         "申請人": user_name,
                         "申請日期": date.today().strftime("%Y-%m-%d"),
                         "狀態": "已提送需求",
                         "核准日期": ""
                     }])
-                    # 確保將新紀錄「接在」舊紀錄後面
-                    updated_logs = pd.concat([logs_df, new_log], ignore_index=True)
+                    
+                    # 💡 確保是把「新的一行」接到「真實舊資料」下面
+                    updated_logs = pd.concat([real_time_logs, new_row], ignore_index=True)
+                    
+                    # 💡 直接推回 Excel
                     conn.update(worksheet="申請紀錄", data=updated_logs)
                     
-                    # B. 自動發信
+                    # 自動發信
                     subject = f"【許可證申請】{sel_name}_{user_name}_{apply_date}"
-                    body = f"Andy 您好，\n\n同仁 {user_name} 已於 {apply_date} 提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(current_list)}\n\n附件請至系統查看。"
+                    body = f"Andy 您好，\n\n同仁 {user_name} 已於 {apply_date} 提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(current_list)}"
                     
-                    if send_auto_email(subject, body):
-                        st.balloons() # 💡 先噴彩帶
-                        st.success("✅ 申請紀錄已更新，並已自動發信給 Andy！")
-                        time.sleep(2) # 💡 暫停兩秒讓彩帶飛完
-                        st.session_state.selected_actions = set()
-                        st.rerun()
-        else:
-            st.write("👆 請點擊上方橫向按鈕選擇辦理項目。")
-    
+                    try:
+                        msg = MIMEText(body, 'plain', 'utf-8')
+                        msg['Subject'] = Header(subject, 'utf-8')
+                        msg['From'] = st.secrets["email"]["sender"]
+                        msg['To'] = st.secrets["email"]["receiver"]
+                        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+                            server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
+                            server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
+                        
+                        st.balloons()
+                        st.success("✅ 申請成功！紀錄已累加至 Excel 並發信。")
+                        time.sleep(2)
+                    except Exception as e:
+                        st.error(f"郵件失敗但紀錄已存：{e}")
+                    
+                    st.session_state.selected_actions = set()
+                    st.rerun()
+
     st.write("---")
     with st.expander("📊 查看許可證管理總表"):
         final_display = main_df.copy()
