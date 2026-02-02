@@ -21,29 +21,28 @@ try:
     main_df, file_df = load_all_data()
     today = pd.Timestamp(date.today())
 
-    # --- 核心邏輯：自動判定狀態 ---
-    # 將 D 欄轉為日期格式進行比對
+    # --- 核心判定邏輯：強制同步狀態 ---
+    # 假設 D 欄是到期日期，H 欄是原本的狀態
     main_df['判斷日期'] = pd.to_datetime(main_df.iloc[:, 3], errors='coerce')
     
-    def check_status(row_date):
+    def get_real_status(row_date):
         if pd.isna(row_date): return "未設定"
         return "✅ 有效" if row_date >= today else "❌ 已過期"
 
-    # 這裡我們新增一個「系統判定狀態」欄位
-    main_df['系統判定狀態'] = main_df['判斷日期'].apply(check_status)
+    # 直接計算出最新的狀態
+    main_df['最新狀態'] = main_df['判斷日期'].apply(get_real_status)
 
-    # --- 📢 跑馬燈功能 (置頂) ---
+    # --- 📢 跑馬燈功能 ---
     upcoming = main_df[main_df['判斷日期'] <= today + pd.Timedelta(days=90)]
     if not upcoming.empty:
-        marquee_text = " | ".join([f"⚠️ {row.iloc[2]} 於 {str(row.iloc[3])[:10]} {row['系統判定狀態']}" for _, row in upcoming.iterrows()])
+        marquee_text = " | ".join([f"⚠️ {row.iloc[2]} {row['最新狀態']} (到期日: {str(row.iloc[3])[:10]})" for _, row in upcoming.iterrows()])
         st.markdown(f"""
             <div style="background-color: #FFF3E0; padding: 10px; border-radius: 5px; border-left: 5px solid #FF9800; overflow: hidden; white-space: nowrap;">
                 <marquee scrollamount="5" style="color: #E65100; font-weight: bold;">{marquee_text}</marquee>
             </div>
         """, unsafe_allow_html=True)
-        st.write("")
 
-    # --- 🌟 最頂層大標題 ---
+    # --- 🌟 大標題 ---
     st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
     st.write("---")
 
@@ -53,25 +52,24 @@ try:
     sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
     sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
 
-    # --- 4. 抓取主表資料 ---
+    # --- 4. 抓取當前選擇資料 ---
     target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
     permit_id = str(target_main.iloc[1])
     expiry_date = str(target_main.iloc[3])
-    current_status = target_main['系統判定狀態']
+    # 這裡抓取系統算出來的最新狀態
+    current_status = get_real_status(pd.to_datetime(expiry_date, errors='coerce'))
     clean_date = expiry_date[:10] if expiry_date != 'nan' else "未設定"
 
-    # --- 5. 許可證資訊呈現 ---
+    # --- 5. 資訊條呈現 ---
     st.title(f"📄 {sel_name}")
-    
-    # 根據狀態顯示不同顏色的資訊條
     if "已過期" in current_status:
-        st.error(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 狀態：{current_status}")
+        st.error(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_status}")
     else:
-        st.info(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 狀態：{current_status}")
+        st.info(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_status}")
     
     st.divider()
 
-    # --- 6. 橫向按鈕複選區 ---
+    # --- 6~8. 選單與上傳功能 (維持原樣) ---
     db_info = file_df[file_df.iloc[:, 0] == sel_type]
     options = db_info.iloc[:, 1].dropna().unique().tolist()
 
@@ -89,7 +87,6 @@ try:
                 else: st.session_state.selected_actions.add(option)
                 st.rerun()
 
-        # --- 7. 申請資訊與上傳區 ---
         current_list = st.session_state.selected_actions
         if current_list:
             st.divider()
@@ -111,12 +108,9 @@ try:
                     st.file_uploader(f"請上傳檔案 - {item}", key=f"up_{item}")
 
             st.divider()
-
-            # --- 8. 提出申請按鈕 ---
-            st.markdown("### 📤 第三步：確認並送出")
             if st.button("🚀 提出申請", type="primary"):
                 if not user_name:
-                    st.warning("⚠️ 請先填寫申請人姓名！")
+                    st.warning("⚠️ 請填寫姓名！")
                 else:
                     subject = f"【許可證申請】{sel_name}_{user_name}_{apply_date}"
                     body = (f"Andy 您好，\n\n同仁 {user_name} 已於 {apply_date} 提交申請。\n"
@@ -126,17 +120,22 @@ try:
                     mailto_link = f"mailto:andy.chen@df-recycle.com?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
                     st.success("✅ 申請資訊彙整完畢！")
                     st.link_button("📧 開啟郵件軟體發送給 Andy", mailto_link)
-        else:
-            st.write("👆 請點擊上方按鈕選擇辦理項目。")
-    
-    # --- 📊 9. 總表恢復區 (含自動判定狀態) ---
+
+    # --- 📊 9. 總表恢復區 (修正狀態顯示) ---
     st.write("---")
-    with st.expander("📊 查看許可證管理總表 (系統自動判定效期)"):
-        # 整理顯示的欄位，把系統判定的狀態移到前面
-        display_df = main_df.copy()
-        # 移除判斷用的輔助欄位
-        display_df = display_df.drop(columns=['判斷日期'])
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    with st.expander("📊 查看許可證管理總表"):
+        # 這裡做一個動作：把原本 Excel 裡的「狀態」欄位換成我們算出來的「最新狀態」
+        final_display = main_df.copy()
+        
+        # 假設狀態原本在第 8 欄 (索引 7)，我們直接用最新狀態蓋掉它
+        # 這樣你就不用改 Excel，網頁上看到的永遠是準確的
+        if len(final_display.columns) > 7:
+            final_display.iloc[:, 7] = final_display['最新狀態']
+        
+        # 移除輔助欄位不顯示
+        final_display = final_display.drop(columns=['判斷日期', '最新狀態'])
+        
+        st.dataframe(final_display, use_container_width=True, hide_index=True)
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
