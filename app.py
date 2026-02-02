@@ -13,7 +13,7 @@ st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide"
 # 2. 建立連線
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 💡 主表用快取節省效能
+# 💡 分開讀取：主表與紀錄表
 @st.cache_data(ttl=5)
 def load_main_data():
     main_df = conn.read(worksheet="大豐既有許可證到期提醒")
@@ -22,10 +22,8 @@ def load_main_data():
     file_df.columns = [str(c).strip() for c in file_df.columns]
     return main_df, file_df
 
-# 💡 紀錄表「絕對不可」用快取，ttl=0 強制每次重新抓取
 def load_logs_no_cache():
     try:
-        # 強制不使用快取，確保看到最新的一行
         df = conn.read(worksheet="申請紀錄", ttl=0)
         return df.dropna(how='all')
     except:
@@ -33,11 +31,10 @@ def load_logs_no_cache():
 
 try:
     main_df, file_df = load_main_data()
-    # 這裡讀取的紀錄僅供畫面顯示
     logs_df = load_logs_no_cache()
     today = pd.Timestamp(date.today())
 
-    # --- 核心判定邏輯 ---
+    # --- 核心判定邏輯 (用於資訊條顏色判定) ---
     main_df['判斷日期'] = pd.to_datetime(main_df.iloc[:, 3], errors='coerce')
     def get_real_status(row_date):
         if pd.isna(row_date): return "未設定"
@@ -60,7 +57,7 @@ try:
 
     main_df['最新狀態'] = main_df['判斷日期'].apply(get_real_status)
 
-    # --- 📢 跑馬燈功能 ---
+    # --- 📢 跑馬燈功能 (原封不動) ---
     upcoming = main_df[main_df['最新狀態'].isin(["❌ 已過期", "⚠️ 準備辦理"])]
     if not upcoming.empty:
         marquee_text = " | ".join([f"{row['最新狀態']}：{row.iloc[2]} (到期日: {str(row.iloc[3])[:10]})" for _, row in upcoming.iterrows()])
@@ -69,13 +66,13 @@ try:
     st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
     st.write("---")
 
+    # --- 📂 側邊選單 ---
     st.sidebar.markdown("## 🏠 系統首頁")
     if st.sidebar.button("回到首頁畫面", use_container_width=True):
         st.session_state.selected_actions = set()
         st.rerun()
     
     st.sidebar.divider()
-    st.sidebar.markdown("## 📂 系統導覽")
     sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
     sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
     sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
@@ -132,24 +129,11 @@ try:
                 if not user_name:
                     st.warning("⚠️ 請填寫姓名！")
                 else:
-                    # 💡 重點修正：寫入按鈕按下的瞬間，才去抓最真實的 Excel 舊紀錄
                     real_time_logs = load_logs_no_cache()
-                    
-                    new_row = pd.DataFrame([{
-                        "許可證名稱": sel_name,
-                        "申請人": user_name,
-                        "申請日期": date.today().strftime("%Y-%m-%d"),
-                        "狀態": "已提送需求",
-                        "核准日期": ""
-                    }])
-                    
-                    # 💡 確保是把「新的一行」接到「真實舊資料」下面
+                    new_row = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user_name, "申請日期": date.today().strftime("%Y-%m-%d"), "狀態": "已提送需求", "核准日期": ""}])
                     updated_logs = pd.concat([real_time_logs, new_row], ignore_index=True)
-                    
-                    # 💡 直接推回 Excel
                     conn.update(worksheet="申請紀錄", data=updated_logs)
                     
-                    # 自動發信
                     subject = f"【許可證申請】{sel_name}_{user_name}_{apply_date}"
                     body = f"Andy 您好，\n\n同仁 {user_name} 已於 {apply_date} 提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(current_list)}"
                     
@@ -161,7 +145,6 @@ try:
                         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
                             server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
                             server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
-                        
                         st.balloons()
                         st.success("✅ 申請成功！紀錄已累加至 Excel 並發信。")
                         time.sleep(2)
@@ -171,11 +154,18 @@ try:
                     st.session_state.selected_actions = set()
                     st.rerun()
 
+    # --- 📊 總表部分 (修改點：完全連動 Excel 第一頁，不進行狀態覆蓋) ---
     st.write("---")
     with st.expander("📊 查看許可證管理總表"):
+        # 直接使用從第一分頁讀取的 main_df 原始資料
         final_display = main_df.copy()
-        if len(final_display.columns) > 7: final_display.iloc[:, 7] = final_display['最新狀態']
-        final_display = final_display.drop(columns=['判斷日期', '最新狀態'])
+        
+        # 移除程式計算用的輔助欄位
+        if '判斷日期' in final_display.columns:
+            final_display = final_display.drop(columns=['判斷日期'])
+        if '最新狀態' in final_display.columns:
+            final_display = final_display.drop(columns=['最新狀態'])
+            
         st.dataframe(final_display, use_container_width=True, hide_index=True)
 
 except Exception as e:
