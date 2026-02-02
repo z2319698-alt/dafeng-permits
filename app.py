@@ -81,4 +81,17 @@ try:
 
     # --- 6. 第一步：項目選取 ---
     db_info = file_df[file_df.iloc[:, 0] == sel_type]
-    options = db_info.
+    options = db_info.iloc[:, 1].dropna().unique().tolist()
+
+    if options:
+        st.subheader("🛠️ 第一步：選擇辦理項目 (可多選)")
+        if "selected_actions" not in st.session_state:
+            st.session_state.selected_actions = set()
+
+        cols = st.columns(len(options))
+        for i, option in enumerate(options):
+            is_active = option in st.session_state.selected_actions
+            if cols[i].button(option, key=f"btn_{option}", use_container_width=True, 
+                              type="primary" if is_active else "secondary"):
+                if is_active: st.session_state.selected_actions.remove(option)
+                else: st.session_state.selected_actions.add(option)
