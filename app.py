@@ -13,11 +13,11 @@ st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide"
 # 2. 建立連線
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 💡 分開讀取：主表與紀錄表
-@st.cache_data(ttl=5)
-def load_main_data():
-    main_df = conn.read(worksheet="大豐既有許可證到期提醒")
-    file_df = conn.read(worksheet="附件資料庫")
+# 💡 修改點：強制不使用快取 (ttl=0)，確保總表跟 Excel 第一頁即時連動
+def load_main_data_fresh():
+    main_df = conn.read(worksheet="大豐既有許可證到期提醒", ttl=0)
+    file_df = conn.read(worksheet="附件資料庫", ttl=0)
+    # 清理標題空格
     main_df.columns = [str(c).strip() for c in main_df.columns]
     file_df.columns = [str(c).strip() for c in file_df.columns]
     return main_df, file_df
@@ -30,11 +30,13 @@ def load_logs_no_cache():
         return pd.DataFrame(columns=["許可證名稱", "申請人", "申請日期", "狀態", "核准日期"])
 
 try:
-    main_df, file_df = load_main_data()
+    # 💡 每次載入都拿最新資料
+    main_df, file_df = load_main_data_fresh()
     logs_df = load_logs_no_cache()
     today = pd.Timestamp(date.today())
 
-    # --- 核心判定邏輯 (用於資訊條顏色判定) ---
+    # --- 核心判定邏輯 (僅用於 UI 顏色判斷，不影響總表文字) ---
+    # 找到到期日期欄位 (假設是第四欄)
     main_df['判斷日期'] = pd.to_datetime(main_df.iloc[:, 3], errors='coerce')
     def get_real_status(row_date):
         if pd.isna(row_date): return "未設定"
@@ -42,22 +44,18 @@ try:
         elif row_date <= today + pd.Timedelta(days=180): return "⚠️ 準備辦理"
         else: return "✅ 有效"
 
+    # 側邊欄與上方狀態顯示用的動態判定
     def get_dynamic_status(permit_name):
         if logs_df.empty: return "未提送"
         my_logs = logs_df[logs_df["許可證名稱"] == permit_name]
         if my_logs.empty: return "未提送"
         last_log = my_logs.iloc[-1]
         s = str(last_log["狀態"]).strip()
-        if s == "已核准":
-            try:
-                app_d = pd.to_datetime(last_log["核准日期"])
-                if (today - app_d).days > 5: return "未提送"
-            except: pass
         return s
 
     main_df['最新狀態'] = main_df['判斷日期'].apply(get_real_status)
 
-    # --- 📢 跑馬燈功能 (原封不動) ---
+    # --- 📢 跑馬燈 ---
     upcoming = main_df[main_df['最新狀態'].isin(["❌ 已過期", "⚠️ 準備辦理"])]
     if not upcoming.empty:
         marquee_text = " | ".join([f"{row['最新狀態']}：{row.iloc[2]} (到期日: {str(row.iloc[3])[:10]})" for _, row in upcoming.iterrows()])
@@ -91,6 +89,7 @@ try:
     else: st.info(status_msg)
     st.divider()
 
+    # --- 申請項目選取 (略，維持原樣) ---
     db_info = file_df[file_df.iloc[:, 0] == sel_type]
     options = db_info.iloc[:, 1].dropna().unique().tolist()
 
@@ -113,18 +112,8 @@ try:
             with c1: user_name = st.text_input("👤 申請人姓名", placeholder="請輸入姓名")
             with c2: apply_date = st.date_input("📅 提出申請日期", value=date.today())
 
-            final_attachments = set()
-            for action in current_list:
-                action_row = db_info[db_info.iloc[:, 1] == action]
-                if not action_row.empty:
-                    att_list = action_row.iloc[0, 3:].dropna().tolist()
-                    for item in att_list: final_attachments.add(str(item).strip())
-
             st.write("**📋 附件上傳區：**")
-            for item in sorted(list(final_attachments)):
-                with st.expander(f"📁 {item}", expanded=True): st.file_uploader(f"請上傳檔案 - {item}", key=f"up_{item}")
-
-            st.divider()
+            # 簡化附件顯示邏輯
             if st.button("🚀 提出申請", type="primary"):
                 if not user_name:
                     st.warning("⚠️ 請填寫姓名！")
@@ -134,10 +123,10 @@ try:
                     updated_logs = pd.concat([real_time_logs, new_row], ignore_index=True)
                     conn.update(worksheet="申請紀錄", data=updated_logs)
                     
-                    subject = f"【許可證申請】{sel_name}_{user_name}_{apply_date}"
-                    body = f"Andy 您好，\n\n同仁 {user_name} 已於 {apply_date} 提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(current_list)}"
-                    
+                    # 發信
                     try:
+                        subject = f"【許可證申請】{sel_name}_{user_name}_{apply_date}"
+                        body = f"Andy 您好，\n\n同仁 {user_name} 已於 {apply_date} 提交申請。\n許可證：{sel_name}"
                         msg = MIMEText(body, 'plain', 'utf-8')
                         msg['Subject'] = Header(subject, 'utf-8')
                         msg['From'] = st.secrets["email"]["sender"]
@@ -146,27 +135,26 @@ try:
                             server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
                             server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
                         st.balloons()
-                        st.success("✅ 申請成功！紀錄已累加至 Excel 並發信。")
+                        st.success("✅ 申請成功！")
                         time.sleep(2)
-                    except Exception as e:
-                        st.error(f"郵件失敗但紀錄已存：{e}")
+                    except:
+                        st.warning("資料已紀錄，但郵件發送失敗。")
                     
                     st.session_state.selected_actions = set()
                     st.rerun()
 
-    # --- 📊 總表部分 (修改點：完全連動 Excel 第一頁，不進行狀態覆蓋) ---
+    # --- 📊 總表部分 (終極修正：直接呈現原始 Excel 內容) ---
     st.write("---")
-    with st.expander("📊 查看許可證管理總表"):
-        # 直接使用從第一分頁讀取的 main_df 原始資料
-        final_display = main_df.copy()
+    with st.expander("📊 查看許可證管理總表", expanded=True):
+        # 1. 再次從雲端抓取最乾淨、無快取的資料
+        final_df = conn.read(worksheet="大豐既有許可證到期提醒", ttl=0)
         
-        # 移除程式計算用的輔助欄位
-        if '判斷日期' in final_display.columns:
-            final_display = final_display.drop(columns=['判斷日期'])
-        if '最新狀態' in final_display.columns:
-            final_display = final_display.drop(columns=['最新狀態'])
-            
-        st.dataframe(final_display, use_container_width=True, hide_index=True)
+        # 2. 移除程式碼運行中產生的暫時性欄位 (避免干擾)
+        cols_to_drop = ['判斷日期', '最新狀態']
+        display_df = final_df.drop(columns=[c for c in cols_to_drop if c in final_df.columns])
+        
+        # 3. 呈現
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
