@@ -23,11 +23,16 @@ try:
 
     # --- 核心判定邏輯 ---
     main_df['判斷日期'] = pd.to_datetime(main_df.iloc[:, 3], errors='coerce')
+    
     def get_real_status(row_date):
         if pd.isna(row_date): return "未設定"
-        if row_date < today: return "❌ 已過期"
-        elif row_date <= today + pd.Timedelta(days=180): return "⚠️ 準備辦理"
-        else: return "✅ 有效"
+        if row_date < today:
+            return "❌ 已過期"
+        elif row_date <= today + pd.Timedelta(days=180):
+            return "⚠️ 準備辦理"
+        else:
+            return "✅ 有效"
+
     main_df['最新狀態'] = main_df['判斷日期'].apply(get_real_status)
 
     # --- 📢 跑馬燈功能 ---
@@ -45,20 +50,19 @@ try:
     st.write("---")
 
     # --- 📂 側邊選單 ---
-    # 🌟 左側欄最上方的首頁重置功能
-    st.sidebar.markdown("### 🏠 系統首頁")
+    # 這裡新增回首頁按鈕，其餘完全不動
+    st.sidebar.markdown("## 🏠 系統首頁")
     if st.sidebar.button("回到首頁畫面", use_container_width=True):
         st.session_state.selected_actions = set()
         st.rerun()
     
     st.sidebar.divider()
-    st.sidebar.markdown("### 📂 系統導覽")
-    
+    st.sidebar.markdown("## 📂 系統導覽")
     sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
     sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
     sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
 
-    # --- 4. 抓取當前資料 ---
+    # --- 4. 抓取當前選擇資料 ---
     target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
     permit_id = str(target_main.iloc[1])
     expiry_date = str(target_main.iloc[3])
@@ -72,4 +76,18 @@ try:
     elif "準備辦理" in current_status:
         st.warning(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_status}")
     else:
-        st.info(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_
+        st.info(f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：{current_status}")
+    
+    st.divider()
+
+    # --- 6. 第一步：橫向按鈕複選區 ---
+    db_info = file_df[file_df.iloc[:, 0] == sel_type]
+    options = db_info.iloc[:, 1].dropna().unique().tolist()
+
+    if options:
+        st.subheader("🛠️ 第一步：選擇辦理項目 (可多選)")
+        if "selected_actions" not in st.session_state:
+            st.session_state.selected_actions = set()
+
+        cols = st.columns(len(options))
+        for
