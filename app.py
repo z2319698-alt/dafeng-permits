@@ -2,17 +2,19 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 import urllib.parse
+import smtplib
+from email.mime.text import MIMEText
+from email.header import Header
 from streamlit_gsheets import GSheetsConnection
 
 # 1. 頁面基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 
-# 2. 資料來源 (改用 GSheetsConnection 以支援讀寫狀態)
+# 2. 資料來源
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=5)
 def load_all_data():
-    # 讀取原本的三個分頁
     main_df = conn.read(worksheet="大豐既有許可證到期提醒")
     file_df = conn.read(worksheet="附件資料庫")
     try:
@@ -24,6 +26,23 @@ def load_all_data():
     main_df.columns = [str(c).strip() for c in main_df.columns]
     file_df.columns = [str(c).strip() for c in file_df.columns]
     return main_df, file_df, logs_df
+
+# --- 💡 新增：自動發信函式 ---
+def send_auto_email(subject, body):
+    try:
+        msg = MIMEText(body, 'plain', 'utf-8')
+        msg['Subject'] = Header(subject, 'utf-8')
+        msg['From'] = st.secrets["email"]["sender"]
+        msg['To'] = st.secrets["email"]["receiver"]
+
+        # 使用 Gmail SMTP 伺服器
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
+            server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
+        return True
+    except Exception as e:
+        st.error(f"❌ 郵件發送失敗，但資料已寫入 Excel。錯誤：{e}")
+        return False
 
 try:
     main_df, file_df, logs_df = load_all_data()
@@ -41,14 +60,13 @@ try:
         else:
             return "✅ 有效"
 
-    # --- 💡 新增：動態狀態判定 (讀取 Excel 紀錄) ---
+    # --- 動態狀態判定 ---
     def get_dynamic_status(permit_name):
         if logs_df.empty: return "未提送"
         my_logs = logs_df[logs_df["許可證名稱"] == permit_name]
         if my_logs.empty: return "未提送"
         last_log = my_logs.iloc[-1]
         s = str(last_log["狀態"]).strip()
-        # 五天過期邏輯
         if s == "已核准":
             try:
                 app_d = pd.to_datetime(last_log["核准日期"])
@@ -58,7 +76,7 @@ try:
 
     main_df['最新狀態'] = main_df['判斷日期'].apply(get_real_status)
 
-    # --- 📢 跑馬燈功能 (原封不動) ---
+    # --- 📢 跑馬燈功能 ---
     upcoming = main_df[main_df['最新狀態'].isin(["❌ 已過期", "⚠️ 準備辦理"])]
     if not upcoming.empty:
         marquee_text = " | ".join([f"{row['最新狀態']}：{row.iloc[2]} (到期日: {str(row.iloc[3])[:10]})" for _, row in upcoming.iterrows()])
@@ -89,11 +107,10 @@ try:
     permit_id = str(target_main.iloc[1])
     expiry_date = str(target_main.iloc[3])
     current_status = get_real_status(pd.to_datetime(expiry_date, errors='coerce'))
-    # 💡 這裡加入動態狀態顯示
     dynamic_s = get_dynamic_status(sel_name)
     clean_date = expiry_date[:10] if expiry_date != 'nan' else "未設定"
 
-    # --- 5. 資訊條呈現 (加入動態狀態) ---
+    # --- 5. 資訊條呈現 ---
     st.title(f"📄 {sel_name}")
     status_msg = f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：【{dynamic_s}】"
     
@@ -106,7 +123,7 @@ try:
     
     st.divider()
 
-    # --- 6. 第一步：項目選取 (原封不動) ---
+    # --- 6. 第一步：項目選取 ---
     db_info = file_df[file_df.iloc[:, 0] == sel_type]
     options = db_info.iloc[:, 1].dropna().unique().tolist()
 
@@ -126,7 +143,7 @@ try:
                     st.session_state.selected_actions.add(option)
                 st.rerun()
 
-        # --- 7. 第二步：填寫與上傳 (加入寫入 Excel 功能) ---
+        # --- 7. 第二步：填寫與自動發送 ---
         current_list = st.session_state.selected_actions
         if current_list:
             st.divider()
@@ -156,7 +173,7 @@ try:
                 if not user_name:
                     st.warning("⚠️ 請填寫姓名！")
                 else:
-                    # 💡 寫入 Excel 申請紀錄
+                    # A. 寫入 Excel
                     new_log = pd.DataFrame([{
                         "許可證名稱": sel_name,
                         "申請人": user_name,
@@ -167,19 +184,22 @@ try:
                     updated_logs = pd.concat([logs_df, new_log], ignore_index=True)
                     conn.update(worksheet="申請紀錄", data=updated_logs)
                     
-                    # 郵件邏輯保留
+                    # B. 自動發信
                     subject = f"【許可證申請】{sel_name}_{user_name}_{apply_date}"
                     body = (f"Andy 您好，\n\n同仁 {user_name} 已於 {apply_date} 提交申請。\n"
                             f"許可證：{sel_name}\n"
                             f"辦理項目：{', '.join(current_list)}\n\n"
-                            f"附件清單如下：\n" + "\n".join([f"- {f}" for f in final_attachments]))
-                    mailto_link = f"mailto:andy.chen@df-recycle.com?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
-                    st.success("✅ 申請紀錄已更新至 Excel，郵件資訊彙整完畢！")
-                    st.link_button("📧 開啟郵件軟體發送給 Andy", mailto_link)
+                            f"附件請至系統查看。")
+                    
+                    if send_auto_email(subject, body):
+                        st.success("✅ 申請紀錄已更新，並已自動發信給 Andy！")
+                        st.balloons()
+                        st.session_state.selected_actions = set()
+                        st.rerun()
         else:
             st.write("👆 請點擊上方橫向按鈕選擇辦理項目。")
     
-    # --- 📊 9. 總表 (原封不動) ---
+    # --- 📊 總表 ---
     st.write("---")
     with st.expander("📊 查看許可證管理總表"):
         final_display = main_df.copy()
