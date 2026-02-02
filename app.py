@@ -24,26 +24,29 @@ try:
     main_df, file_df, logs_df = load_data()
     today = pd.Timestamp(date.today())
 
-    # --- 跑馬燈邏輯 ---
-    # 假設第四欄 (索引3) 是到期日期
-    main_df.iloc[:, 3] = pd.to_datetime(main_df.iloc[:, 3])
-    upcoming = main_df[
-        (main_df.iloc[:, 3] <= today + timedelta(days=90)) & 
-        (main_df.iloc[:, 3] >= today)
-    ]
+    # --- 🏆 1. 跑馬燈區 ---
+    temp_df = main_df.copy()
+    temp_df.iloc[:, 3] = pd.to_datetime(temp_df.iloc[:, 3], errors='coerce')
+    upcoming = temp_df[(temp_df.iloc[:, 3].notna()) & (temp_df.iloc[:, 3] <= today + timedelta(days=90)) & (temp_df.iloc[:, 3] >= today)]
     
     if not upcoming.empty:
-        # 製作跑馬燈文字
-        marquee_items = [f"⚠️ {row.iloc[2]} 將於 {row.iloc[3].strftime('%Y-%m-%d')} 到期" for _, row in upcoming.iterrows()]
+        marquee_items = [f"⚠️ {row.iloc[2]} 即將於 {row.iloc[3].strftime('%Y-%m-%d')} 到期" for _, row in upcoming.iterrows()]
         marquee_text = "　　　　".join(marquee_items)
         st.markdown(f"""
-            <div style="background-color: #FFEBEE; padding: 10px; border-radius: 5px; border: 1px solid #FFCDD2; overflow: hidden; white-space: nowrap;">
-                <marquee scrollamount="5" style="color: #D32F2F; font-weight: bold;">{marquee_text}</marquee>
+            <div style="background-color: #FFF3E0; padding: 12px; border-radius: 8px; border: 2px solid #FFB74D; margin-bottom: 20px;">
+                <marquee scrollamount="6" style="color: #E65100; font-weight: bold; font-size: 18px;">{marquee_text}</marquee>
             </div>
         """, unsafe_allow_html=True)
-        st.write("")
 
-    # --- 狀態判定邏輯 ---
+    # --- 2. 側邊欄與資料篩選 ---
+    st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
+    st.sidebar.markdown("## 🏠 系統選單")
+    
+    sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
+    sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
+    sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
+
+    # --- 3. 狀態判定邏輯 ---
     def get_display_status(permit_name):
         if logs_df.empty: return "未提送"
         my_logs = logs_df[logs_df["許可證名稱"] == permit_name]
@@ -57,46 +60,28 @@ try:
             except: pass
         return s
 
-    # --- 介面渲染 ---
-    st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
-    
-    st.sidebar.markdown("## 🏠 系統選單")
-    if st.sidebar.button("回到首頁畫面", use_container_width=True):
-        st.session_state.selected_actions = set()
-        st.rerun()
-    st.sidebar.divider()
-    
-    sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
-    sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
-    sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
-
-    # --- 取得資訊 ---
     current_p_status = get_display_status(sel_name)
     target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
-    
     permit_id = str(target_main.iloc[1])
-    expiry_date = target_main.iloc[3].strftime('%Y-%m-%d') # 格式化日期
+    expiry_display = pd.to_datetime(target_main.iloc[3]).strftime('%Y-%m-%d') if not pd.isna(target_main.iloc[3]) else "無日期"
 
+    # --- 4. 單一證照詳細資訊與申請 ---
     st.title(f"📄 {sel_name}")
+    st.error(f"📅 許可證到期日期：{expiry_display}")
     
-    # 顯示狀態標籤
     status_color = "gray"
     if current_p_status == "已核准": status_color = "green"
     elif "提送" in current_p_status or "申請中" in current_p_status: status_color = "orange"
-    
-    # 補回：顯示到期日期與狀態
-    st.error(f"📅 許可證到期日期：{expiry_date}")
     st.info(f"🆔 管制編號：{permit_id}　|　📢 目前狀態：:{status_color}[【{current_p_status}】]")
+    
     st.divider()
 
-    # --- 辦理項目與申請 ---
+    # 辦理項目
     db_info = file_df[file_df.iloc[:, 0] == sel_type]
     options = db_info.iloc[:, 1].dropna().unique().tolist()
-
     if options:
         st.subheader("🛠️ 第一步：選擇辦理項目")
         if "selected_actions" not in st.session_state: st.session_state.selected_actions = set()
-            
         cols = st.columns(len(options))
         for i, option in enumerate(options):
             is_active = option in st.session_state.selected_actions
@@ -106,24 +91,24 @@ try:
                 st.rerun()
 
         if st.session_state.selected_actions:
-            st.markdown("---")
             user_name = st.text_input("👤 申請人姓名")
             if st.button("🚀 確認送出申請", type="primary"):
-                if not user_name:
-                    st.error("❌ 請輸入姓名")
+                if not user_name: st.error("❌ 請輸入姓名")
                 else:
-                    new_log = pd.DataFrame([{
-                        "許可證名稱": sel_name,
-                        "申請人": user_name,
-                        "申請日期": date.today().strftime("%Y-%m-%d"),
-                        "狀態": "已提送需求",
-                        "核准日期": ""
-                    }])
+                    new_log = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user_name, "申請日期": date.today().strftime("%Y-%m-%d"), "狀態": "已提送需求", "核准日期": ""}])
                     updated_df = pd.concat([logs_df, new_log], ignore_index=True)
                     conn.update(worksheet="申請紀錄", data=updated_df)
                     st.success(f"✅ 申請已送出！")
                     st.session_state.selected_actions = set()
                     st.rerun()
 
+    # --- 🏆 5. 最下方的完整總表 ---
+    st.divider()
+    st.subheader("📊 許可證完整資料總覽")
+    # 格式化日期以便閱讀
+    display_df = main_df.copy()
+    display_df.iloc[:, 3] = pd.to_datetime(display_df.iloc[:, 3], errors='coerce').dt.strftime('%Y-%m-%d')
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
 except Exception as e:
-    st.error(f"系統連線異常: {e}")
+    st.error(f"系統連線或資料格式異常: {e}")
