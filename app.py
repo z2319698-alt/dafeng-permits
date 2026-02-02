@@ -51,6 +51,7 @@ try:
 
     # --- 📂 側邊選單 ---
     st.sidebar.markdown("## 🏠 系統首頁")
+    # 🌟 回到首頁按鈕：點擊後會重置並回到初始狀態
     if st.sidebar.button("回到首頁畫面", use_container_width=True):
         st.session_state.selected_actions = set()
         st.rerun()
@@ -93,5 +94,62 @@ try:
             is_active = option in st.session_state.selected_actions
             if cols[i].button(option, key=f"btn_{option}", use_container_width=True, 
                               type="primary" if is_active else "secondary"):
-                if is_active: st.session_state.selected_actions.remove(option)
-                else: st.session_state.selected_actions.add(option)
+                if is_active:
+                    st.session_state.selected_actions.remove(option)
+                else:
+                    st.session_state.selected_actions.add(option)
+                st.rerun()
+
+        # --- 7. 第二步：填寫與上傳 ---
+        current_list = st.session_state.selected_actions
+        if current_list:
+            st.divider()
+            st.markdown("### 📝 第二步：填寫申請資訊與附件")
+            c1, c2 = st.columns(2)
+            with c1:
+                user_name = st.text_input("👤 申請人姓名", placeholder="請輸入姓名")
+            with c2:
+                apply_date = st.date_input("📅 提出申請日期", value=date.today())
+
+            final_attachments = set()
+            for action in current_list:
+                action_row = db_info[db_info.iloc[:, 1] == action]
+                if not action_row.empty:
+                    att_list = action_row.iloc[0, 3:].dropna().tolist()
+                    for item in att_list:
+                        final_attachments.add(str(item).strip())
+
+            st.write("**📋 附件上傳區：**")
+            sorted_atts = sorted(list(final_attachments))
+            for item in sorted_atts:
+                with st.expander(f"📁 {item}", expanded=True):
+                    st.file_uploader(f"請上傳檔案 - {item}", key=f"up_{item}")
+
+            st.divider()
+            if st.button("🚀 提出申請", type="primary"):
+                if not user_name:
+                    st.warning("⚠️ 請填寫姓名！")
+                else:
+                    subject = f"【許可證申請】{sel_name}_{user_name}_{apply_date}"
+                    body = (f"Andy 您好，\n\n同仁 {user_name} 已於 {apply_date} 提交申請。\n"
+                            f"許可證：{sel_name}\n"
+                            f"辦理項目：{', '.join(current_list)}\n\n"
+                            f"附件清單如下：\n" + "\n".join([f"- {f}" for f in final_attachments]))
+                    mailto_link = f"mailto:andy.chen@df-recycle.com?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
+                    st.success("✅ 申請資訊彙整完畢！")
+                    st.link_button("📧 開啟郵件軟體發送給 Andy", mailto_link)
+        else:
+            st.write("👆 請點擊上方橫向按鈕選擇辦理項目。")
+    
+    # --- 📊 9. 總表 ---
+    st.write("---")
+    with st.expander("📊 查看許可證管理總表"):
+        final_display = main_df.copy()
+        if len(final_display.columns) > 7:
+            final_display.iloc[:, 7] = final_display['最新狀態']
+        
+        final_display = final_display.drop(columns=['判斷日期', '最新狀態'])
+        st.dataframe(final_display, use_container_width=True, hide_index=True)
+
+except Exception as e:
+    st.error(f"❌ 系統錯誤：{e}")
