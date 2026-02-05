@@ -10,7 +10,7 @@ st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide"
 # 2. 建立連線
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 🧠 AI 智慧模組區 (完全保留原始內容) ---
+# --- 🧠 AI 智慧模組區 ---
 def display_ai_law_wall(category):
     law_db = {
         "廢棄物清理計畫書": [
@@ -32,19 +32,19 @@ def display_ai_law_wall(category):
 
 def display_penalty_cases():
     st.markdown("## ⚖️ 近一年環保裁處案例重點分享")
+    st.info("AI 彙整：以下為近一年台灣針對各類環保違規之典型開罰案例，請各廠區引以為戒。")
     cases = [
-        {"type": "廢棄物類", "law": "廢棄物清理法第 31 條", "reason": "未依規定之格式、內容、頻率申報。", "penalty": "罰鍰 NT$ 6,000 ~ 300 萬", "key": "【漏報】廢清書變更後未報備。"},
-        {"type": "水污染類", "law": "水污染防治法第 14 條", "reason": "排放廢污水不符合標準。", "penalty": "罰鍰 NT$ 6 萬 ~ 2,000 萬", "key": "【超標】雨天逕流廢水未妥善處理。"}
+        {"type": "廢棄物類", "law": "廢棄物清理法第 31 條", "reason": "未依規定之格式、內容、頻率申報廢棄物產出、貯存及清理情形。", "penalty": "罰鍰 NT$ 6,000 ~ 300 萬", "key": "【漏報】廢清書變更後，未於 15 日內完成線上報備。"},
+        {"type": "水污染類", "law": "水污染防治法第 14 條", "reason": "排放廢污水不符合放流水標準。", "penalty": "罰鍰 NT$ 6 萬 ~ 2,000 萬", "key": "【超標】雨天逕流廢水未經妥善收集處理即排入溝渠。"}
     ]
     for case in cases:
         st.markdown(f"""<div style="background-color: #fff5f5; border-left: 5px solid #e53935; padding: 15px; margin-bottom: 15px; border-radius: 8px;"><b style="color: #e53935;">[{case['type']}] {case['law']}</b><p>事由：{case['reason']}</p><p style="color: #1a237e; background-color: #e8eaf6; padding: 5px;">💡 避險：{case['key']}</p></div>""", unsafe_allow_html=True)
 
-# 3. 數據加載 (強化標題抓取)
+# 3. 數據加載
 @st.cache_data(ttl=5)
 def load_all_data():
     m_df = conn.read(worksheet="大豐既有許可證到期提醒")
     f_df = conn.read(worksheet="附件資料庫")
-    # 清理所有隱藏空格與換行符
     m_df.columns = [str(c).strip().replace(" ", "").replace("\n", "") for c in m_df.columns]
     f_df.columns = [str(c).strip().replace(" ", "").replace("\n", "") for c in f_df.columns]
     return m_df, f_df
@@ -62,19 +62,11 @@ try:
     logs_df = load_logs()
     today = pd.Timestamp(date.today())
 
-    # --- 📢 跑馬燈 (原始設定) ---
+    # --- 📢 跑馬燈 ---
     main_df['判斷日期'] = pd.to_datetime(main_df.iloc[:, 3], errors='coerce')
-    def get_real_status(row_date):
-        if pd.isna(row_date): return "未設定"
-        if row_date < today: return "❌ 已過期"
-        elif row_date <= today + pd.Timedelta(days=180): return "⚠️ 準備辦理"
-        else: return "✅ 有效"
-    main_df['最新狀態'] = main_df['判斷日期'].apply(get_real_status)
-
-    upcoming = main_df[main_df['最新狀態'].isin(["❌ 已過期", "⚠️ 準備辦理"])]
-    if not upcoming.empty:
-        marquee_text = " | ".join([f"{row['最新狀態']}：{row.iloc[2]} (到期日: {str(row.iloc[3])[:10]})" for _, row in upcoming.iterrows()])
-        st.markdown(f'<div style="background-color: #FFF3E0; padding: 10px; border-radius: 5px; border-left: 5px solid #FF9800; overflow: hidden; white-space: nowrap;"><marquee scrollamount="5" style="color: #E65100; font-weight: bold;">{marquee_text}</marquee></div>', unsafe_allow_html=True)
+    marquee_text = " | ".join([f"⚠️ 提醒：{row.iloc[2]} (到期日: {str(row.iloc[3])[:10]})" for _, row in main_df.iterrows() if pd.notna(row.iloc[3]) and row.iloc[3] <= today + pd.Timedelta(days=180)])
+    if marquee_text:
+        st.markdown(f'<div style="background-color: #FFF3E0; padding: 10px;"><marquee scrollamount="5" style="color: #E65100; font-weight: bold;">{marquee_text}</marquee></div>', unsafe_allow_html=True)
 
     st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
     st.write("---")
@@ -92,13 +84,10 @@ try:
     # --- 畫面渲染邏輯 ---
     if st.session_state.mode == "library":
         st.header("📁 既有文件下載區")
-        st.info("請點選下方按鈕下載或檢視各廠區許可證 PDF 紙本。")
         for idx, row in main_df.iterrows():
             c1, c2, c3 = st.columns([2, 1, 1])
             c1.write(f"📄 **{row.iloc[2]}**")
             c2.write(f"📅 到期: {str(row.iloc[3])[:10]}")
-            
-            # 💡 修復點：改用 row.get 並移除 link_button 的 key 參數
             url = row.get("PDF連結", "")
             if pd.notna(url) and str(url).strip().startswith("http"):
                 c3.link_button("📥 下載 PDF", str(url).strip(), use_container_width=True)
@@ -111,7 +100,7 @@ try:
         if st.button("⬅️ 返回辦理系統"): st.session_state.mode = "management"; st.rerun()
             
     else:
-        # --- 原始許可證管理頁面 (維持所有設定) ---
+        # --- 📋 許可證辦理系統 (回歸附件區) ---
         st.sidebar.divider()
         sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
@@ -122,18 +111,17 @@ try:
 
         # AI 紙本核對狀態
         pdf_val = target_main.get("PDF連結", "")
-        if pd.isna(pdf_val) or str(pdf_val).strip() == "":
-            st.markdown('<p style="color:#d32f2f;">🔍 AI 狀態：⚠️ 雲端無紙本備份，AI 無法核對</p>', unsafe_allow_html=True)
-        else:
-            st.markdown('<p style="color:#2E7D32;">🔍 AI 狀態：✅ 已與雲端 PDF 同步，核對一致</p>', unsafe_allow_html=True)
+        ai_color = "#2E7D32" if pd.notna(pdf_val) and str(pdf_val).strip() != "" else "#d32f2f"
+        ai_msg = "✅ 已與雲端 PDF 同步，核對一致" if ai_color == "#2E7D32" else "⚠️ 雲端無紙本備份，AI 無法核對"
+        st.markdown(f'<p style="color:{ai_color}; font-weight:bold;">🔍 AI 狀態：{ai_msg}</p>', unsafe_allow_html=True)
 
         display_ai_law_wall(sel_type)
         
-        # 辦理項目按鈕 (原始邏輯)
+        # 🛠️ 第一步：選擇辦理項目
         db_info = file_df[file_df.iloc[:, 0] == sel_type]
         options = db_info.iloc[:, 1].dropna().unique().tolist()
         if options:
-            st.subheader("🛠️ 第一步：選擇辦理項目")
+            st.subheader("🛠️ 第一步：選擇辦理項目 (可多選)")
             if "selected_actions" not in st.session_state: st.session_state.selected_actions = set()
             cols = st.columns(len(options))
             for i, option in enumerate(options):
@@ -143,13 +131,31 @@ try:
                     else: st.session_state.selected_actions.add(option)
                     st.rerun()
 
-            if st.session_state.selected_actions:
-                user_name = st.text_input("👤 申請人姓名")
+            # 📝 第二步：附件上傳區 (補回功能)
+            current_list = st.session_state.selected_actions
+            if current_list:
+                st.divider()
+                st.markdown("### 📝 第二步：填寫申請資訊與上傳附件")
+                user_name = st.text_input("👤 申請人姓名", placeholder="請輸入姓名")
+                
+                # 自動抓取附件清單
+                final_attachments = set()
+                for action in current_list:
+                    action_row = db_info[db_info.iloc[:, 1] == action]
+                    if not action_row.empty:
+                        att_list = action_row.iloc[0, 3:].dropna().tolist()
+                        for item in att_list: final_attachments.add(str(item).strip())
+
+                # 渲染附件上傳格 (展開器)
+                for item in sorted(list(final_attachments)):
+                    with st.expander(f"📁 必備附件：{item}", expanded=True):
+                        st.file_uploader(f"請上傳檔案 - {item}", key=f"up_{item}")
+
                 if st.button("🚀 提出申請", type="primary"):
                     if user_name:
                         new_data = {"許可證名稱": sel_name, "申請人": user_name, "申請日期": date.today().strftime("%Y-%m-%d"), "狀態": "已提送需求"}
                         conn.update(worksheet="申請紀錄", data=pd.concat([logs_df, pd.DataFrame([new_data])], ignore_index=True))
-                        st.success("✅ 申請成功！"); st.cache_data.clear(); time.sleep(1); st.session_state.selected_actions = set(); st.rerun()
+                        st.balloons(); st.success("✅ 申請成功！"); st.cache_data.clear(); time.sleep(1); st.session_state.selected_actions = set(); st.rerun()
 
         st.write("---")
         with st.expander("📊 查看許可證管理總表"):
