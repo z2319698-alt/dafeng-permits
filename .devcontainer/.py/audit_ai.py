@@ -3,56 +3,81 @@ import requests
 import pytesseract
 from pdf2image import convert_from_bytes
 import re
+import os
 
-# --- 1. 設定 Tesseract ---
+# --- 1. 設定 Tesseract 路徑 ---
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
-# --- 2. 你的試算表 ---
+# --- 2. 雲端試算表設定 ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=csv&gid=1439172114"
 
-def audit_cloud_file(row_index):
-    print(f"📊 正在讀取試算表第 {row_index + 1} 筆資料...")
-    df = pd.read_csv(SHEET_URL)
-    
-    # 抓取試算表裡的資料
-    target_row = df.iloc[row_index]
-    sheet_date = str(target_row['到期日期']).strip()
-    pdf_link = str(target_row['檔案連結']) # 假設你的連結欄位叫「檔案連結」
-    
-    print(f"🔗 正在從雲端抓取 PDF 檔案...")
-    
+# --- 3. 關鍵字清單 (根據你提供的整理) ---
+KEYWORDS = ["有效日期", "有效期限", "有效期間", "發文次日至", "許可期限", "起至"]
+
+def start_audit():
+    print("==========================================")
+    print("📊 正在讀取雲端試算表資料...")
     try:
-        # 這裡的邏輯是：直接從網址下載 PDF 到記憶體，不存到桌面
-        # 注意：Google Drive 的連結需要特殊轉換才能直接下載
-        file_id = pdf_link.split('/')[-2] if 'view' in pdf_link else pdf_link.split('=')[-1]
-        direct_download_url = f'https://drive.google.com/uc?export=download&id={file_id}'
+        df = pd.read_csv(SHEET_URL)
+        target = int(input("🔢 請輸入你想核對的列號 (例如第7筆請輸入7): ")) - 1
         
-        response = requests.get(direct_download_url)
+        sheet_date = str(df.iloc[target]['到期日期']).strip()
+        # 這裡假設你的連結欄位名稱是「檔案連結」，請視情況修改
+        pdf_link = str(df.iloc[target]['檔案連結']).strip() 
         
-        # 將 PDF 轉為圖片辨識
-        images = convert_from_bytes(response.content, dpi=200)
-        
-        for i, img in enumerate(images):
-            text = pytesseract.image_to_string(img, lang='chi_tra')
-            match = re.search(r"(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日", text)
-            
-            if match:
-                yy, mm, dd = match.groups()
-                pdf_date = f"{int(yy)+1911}-{mm.zfill(2)}-{dd.zfill(2)}"
-                print(f"🎯 AI 在 PDF 第 {i+1} 頁找到日期：{pdf_date}")
-                
-                print("-" * 30)
-                if pdf_date == sheet_date:
-                    print(f"✅ 【核對成功】雲端檔案日期吻合！")
-                else:
-                    print(f"❌ 【核對失敗】表格是 {sheet_date}，但 PDF 裡是 {pdf_date}")
-                return
-                
+        print(f"✅ 試算表目標日期：{sheet_date}")
     except Exception as e:
-        print(f"❌ 無法讀取雲端檔案：{e}")
-        print("💡 提示：請確認該 PDF 在雲端已開啟「知道連結的任何人皆可檢視」。")
+        print(f"❌ 讀取失敗：{e}")
+        return
+
+    print(f"🌐 正在從雲端下載 PDF 進行辨識...")
+    try:
+        # 轉換 Google Drive 連結為直接下載格式
+        file_id = ""
+        if 'id=' in pdf_link:
+            file_id = pdf_link.split('id=')[-1].split('&')[0]
+        elif '/d/' in pdf_link:
+            file_id = pdf_link.split('/d/')[1].split('/')[0]
+        
+        direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
+        response = requests.get(direct_url)
+        
+        # 轉為圖片 (dpi=200 提升辨識率)
+        pages = convert_from_bytes(response.content, dpi=200)
+        
+        found_date = None
+        for i, page in enumerate(pages):
+            print(f"正在掃描第 {i+1} 頁...", end="\r")
+            text = pytesseract.image_to_string(page, lang='chi_tra')
+            
+            # 檢查是否含有任一關鍵字
+            if any(k in text for k in KEYWORDS):
+                # 搜尋日期格式：支援 116年10月20日、116.10.20、116/10/20
+                match = re.search(r"(\d{2,3})[\s\.年/]*(\d{1,2})[\s\.月/]*(\d{1,2})", text)
+                if match:
+                    yy, mm, dd = match.groups()
+                    # 民國轉西元
+                    year = int(yy) + 1911 if int(yy) < 1911 else int(yy)
+                    found_date = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
+                    print(f"\n🎯 成功在第 {i+1} 頁找到符合關鍵字的日期！")
+                    break
+        
+        if found_date:
+            print(f"📄 PDF 辨識結果 (已轉西元)：{found_date}")
+            print("-" * 30)
+            # 比對邏輯 (忽略橫槓或斜線差異)
+            if found_date.replace('-', '') == sheet_date.replace('-', ''):
+                print("🏁 核對結果：【✅ 完美吻合】")
+            else:
+                print("🏁 核對結果：【❌ 不吻合】")
+                print(f"   試算表：{sheet_date}")
+                print(f"   PDF 內容：{found_date}")
+            print("-" * 30)
+        else:
+            print("\n⚠️ 遍尋所有頁面皆未找到包含關鍵字的日期，請檢查 PDF 解析度。")
+
+    except Exception as e:
+        print(f"\n❌ 執行過程發生錯誤：{e}")
 
 if __name__ == "__main__":
-    # 你想核對第幾筆，這裡就改幾 (第 1 筆是 0, 第 7 筆是 6)
-    target = int(input("請輸入你想核對的列號 (例如第1筆請輸入1): ")) - 1
-    audit_cloud_file(target)
+    start_audit()
