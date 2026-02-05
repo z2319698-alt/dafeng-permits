@@ -33,7 +33,7 @@ def ai_verify_background(pdf_link, sheet_date):
     except:
         return True, "跳過辨識"
 
-# 2. 頁面基礎設定 (黑色背景與樣式)
+# 2. 頁面基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 st.markdown("""
     <style>
@@ -47,40 +47,48 @@ st.markdown("""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 裁處案例內容與輪播邏輯 ---
+# --- 3. 裁處案例 (4格排版與輪播) ---
 def display_penalty_cases():
     st.markdown("## ⚖️ 近一年重大環保事件 (2025-2026)")
-    
-    # 輪播邏輯：每 12 小時切換一次 (AM/PM)
     is_afternoon = datetime.now().hour >= 12
     
+    # 頂部輪播大方塊 (字數加多)
     if not is_afternoon:
-        # 上午案例 A
-        st.markdown("""<div style="background-color: #2D0D0D; border-left: 5px solid #e53935; padding: 20px; border-radius: 8px;">
-            <b style="color: #ff4d4d; font-size: 1.2rem;">🚨 [上午快訊] 2025/09 屏東非法棄置刑案與連帶責任</b>
-            <p style="color: white; margin-top: 10px;">
-            本案肇因於某知名清運包商為節省處理成本，未領有有害廢棄物收受許可，卻私自承攬南部工業區之強酸電鍍液。清運車輛於深夜惡意將廢液直接排放至高屏溪上游之河川保護地。
-            <br><b>【法律代價】：</b>主嫌已依廢清法第46條刑事責任收押。產源單位（工廠）因未落實「盡職調查」與「流向追蹤」，遭環保局判定為疏忽監督，面臨連帶行政罰鍰 600 萬元並勒令停工。
-            <br><b>💡 管理核心：</b>委託清運務必於系統查核廠商「當月有效」之證號，嚴禁僅憑口頭合約執行。</p></div>""", unsafe_allow_html=True)
+        st.markdown("""<div style="background-color: #2D0D0D; border-left: 5px solid #e53935; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
+            <b style="color: #ff4d4d; font-size: 1.25rem;">🚨 [AM 上午播報] 2025/09 屏東非法棄置刑案深度解析</b>
+            <p style="color: white; margin-top: 10px; line-height: 1.6;">
+            此案例涉及某知名清運包商長期規避環境部申報，利用非法租賃之廠房非法貯存大量有害廢液，並於深夜趁豪雨將強酸液直接排入高屏溪保護區。環境部透過水質自動監測站異常訊號追蹤，配合科技執法即時鎖定車輛。
+            <br><b>【法律處分與賠償】：</b>主嫌已遭刑事移送，面臨五年以下有期徒刑。產源工廠除面臨 600 萬元行政重罰，並因涉及連帶責任，需負擔該河段價值近 1,500 萬元的生態復育與清理費用。
+            <br><b>💡 管理核心：</b>委託清運合約中必須載明「流向追蹤條款」，產源單位應定期抽查清運商之 GPS 軌跡與處理場簽單。</p></div>""", unsafe_allow_html=True)
     else:
-        # 下午案例 B
-        st.markdown("""<div style="background-color: #2D0D0D; border-left: 5px solid #e53935; padding: 20px; border-radius: 8px;">
-            <b style="color: #ff4d4d; font-size: 1.2rem;">🚨 [下午快訊] 2026/02 農地盜採回填案與巨額清理費</b>
-            <p style="color: white; margin-top: 10px;">
-            橫跨三縣市之犯罪集團非法經營「假土石方、真掩埋」，非法回填 14 萬噸營建混合物於一級水源保護區之農地。行政院已組成跨部會專案小組，利用 GPS 軌跡雲端回溯。
-            <br><b>【法律代價】：</b>不法獲利初估 2.4 億元全數沒收。環保署已啟動「代履行」機制，所有無法提供合法流向證明之產源單位，將依比例攤提清理費用，個別公司面臨高達 2,000 萬元之求償。
-            <br><b>💡 管理核心：</b>產源單位必須確保 GPS 軌跡與申報路線 100% 吻合，偏差超過 1 公里即為稽查高風險。</p></div>""", unsafe_allow_html=True)
+        st.markdown("""<div style="background-color: #2D0D0D; border-left: 5px solid #e53935; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
+            <b style="color: #ff4d4d; font-size: 1.25rem;">🚨 [PM 下午播報] 2026/02 農地盜採回填犯罪集團案追蹤</b>
+            <p style="color: white; margin-top: 10px; line-height: 1.6;">
+            行政院環境部啟動「斷源專案」，針對跨縣市農地回填廢棄物案進行全面掃蕩。該集團非法回填體積高達 14 萬噸，混合物包含大量營建廢棄物與部分電子零組件廢碎料。
+            <br><b>【法律處分與賠償】：</b>檢察官已凍結涉案公司名下資產 2.4 億元作為清理基金。環保局強制產源端於三個月內提出「清理計畫」，若無法證明其合法流向，將面臨按次連續開罰。
+            <br><b>💡 管理核心：</b>產源單位必須落實場內廢棄物代碼細分，確保「產出種類」與「許可證」完全吻合，避免因混裝被列為非法清運對象。</p></div>""", unsafe_allow_html=True)
 
-    st.markdown("---")
+    # 社會重大事件 - 四格排版回歸
     st.markdown("### 🌐 社會重大事件與監控熱點")
     news = [
-        {"topic": "環境部科技監控專案", "desc": "中央擴大採用 AI 影像辨識與清運車軌跡雲端比對，若發現車輛與申報清單不符，系統將即時發信至局端查緝。", "advice": "務必要求廠商嚴格按照申報路線行駛。"},
-        {"topic": "社群媒體即時爆料趨勢", "desc": "異味或揚塵投訴已從傳統電話轉向 Dcard/Facebook 地方社團。這類輿論會迫使環保局採取「從嚴從快」處理模式。", "advice": "落實每日場內巡檢紀錄與噴霧除臭時間表。"}
+        {"topic": "南投名間焚化爐修繕抗爭", "desc": "因設施老舊導致收受量大幅縮減，引發地方居民針對異味控制不佳及清運車輛頻繁進出進行封路抗爭，已造成多家廠商清運受阻。", "advice": "建議場內落實每日自主巡檢，並備齊噴霧除臭與覆蓋紀錄。"},
+        {"topic": "環境部科技監控專案", "desc": "中央擴大採用 AI 影像辨識與 GPS 軌跡雲端比對，若清運車輛軌跡與申報路線偏差超過 1 公里，系統將自動觸發稽查通報。", "advice": "務必要求外包廠商嚴格按照申報路線行駛，避免不必要查核。"},
+        {"topic": "社群爆料檢舉趨勢", "desc": "民眾針對異味或揚塵的投訴模式已轉向 Dcard、Facebook 等社群媒體即時爆料，引發媒體跟進與局端查訪頻率增加 30%。", "advice": "強化場內邊界粉塵防治措施，並保留防治設備作業時間證明。"},
+        {"topic": "許可代碼誤植連罰稽查", "desc": "環保局近期查核重點在於營建廢棄物與一般事業廢棄物代碼混用情形。若產出代碼與許可不符，將採取「按次連罰」直至改善。", "advice": "定期執行內部許可證代碼複核，確保產出、貯存、清運代碼完全一致。"}
     ]
-    cols = st.columns(2)
-    for i, m in enumerate(news):
-        with cols[i % 2]:
-            st.markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 180px;"><b style="color: #4fc3f7;">{m['topic']}</b><p style="color: white;">{m['desc']}</p><p style="color: #81d4fa;"><b>📢 建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
+    
+    # 建立 2x2 矩陣
+    row1_c1, row1_c2 = st.columns(2)
+    with row1_c1:
+        st.markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 200px; margin-bottom: 20px;"><b style="color: #4fc3f7; font-size: 1.1rem;">{news[0]['topic']}</b><p style="color: white; font-size: 0.9rem;">{news[0]['desc']}</p><p style="color: #81d4fa; font-size: 0.9rem;"><b>📢 建議：</b>{news[0]['advice']}</p></div>""", unsafe_allow_html=True)
+    with row1_c2:
+        st.markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 200px; margin-bottom: 20px;"><b style="color: #4fc3f7; font-size: 1.1rem;">{news[1]['topic']}</b><p style="color: white; font-size: 0.9rem;">{news[1]['desc']}</p><p style="color: #81d4fa; font-size: 0.9rem;"><b>📢 建議：</b>{news[1]['advice']}</p></div>""", unsafe_allow_html=True)
+    
+    row2_c1, row2_c2 = st.columns(2)
+    with row2_c1:
+        st.markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 200px; margin-bottom: 20px;"><b style="color: #4fc3f7; font-size: 1.1rem;">{news[2]['topic']}</b><p style="color: white; font-size: 0.9rem;">{news[2]['desc']}</p><p style="color: #81d4fa; font-size: 0.9rem;"><b>📢 建議：</b>{news[2]['advice']}</p></div>""", unsafe_allow_html=True)
+    with row2_c2:
+        st.markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 200px; margin-bottom: 20px;"><b style="color: #4fc3f7; font-size: 1.1rem;">{news[3]['topic']}</b><p style="color: white; font-size: 0.9rem;">{news[3]['desc']}</p><p style="color: #81d4fa; font-size: 0.9rem;"><b>📢 建議：</b>{news[3]['advice']}</p></div>""", unsafe_allow_html=True)
 
 # 4. 數據加載
 @st.cache_data(ttl=5)
@@ -97,7 +105,6 @@ try:
     today = pd.Timestamp(date.today())
     if "mode" not in st.session_state: st.session_state.mode = "home"
     
-    # --- 側邊欄 ---
     st.sidebar.markdown("## 🏠 系統導航")
     if st.sidebar.button("🏠 系統首頁"): st.session_state.mode = "home"; st.rerun()
     if st.sidebar.button("📋 許可證辦理系統"): st.session_state.mode = "management"; st.rerun()
@@ -106,7 +113,7 @@ try:
     st.sidebar.divider()
     if st.sidebar.button("🔄 更新數據"): st.cache_data.clear(); st.rerun()
 
-    # --- 1. 系統首頁 (回歸誇獎版本) ---
+    # --- 1. 系統首頁 (誇獎版本) ---
     if st.session_state.mode == "home":
         st.title("🚀 大豐環保許可證管理系統")
         st.markdown("---")
@@ -150,7 +157,6 @@ try:
         st.title(f"📄 {sel_name}")
         days_left = (target_main.iloc[3] - today).days
         
-        # --- AI 建議格修正：根據天數提醒 ---
         r1c1, r1c2 = st.columns(2)
         with r1c1:
             if days_left < 90: st.error(f"🚨 【嚴重警告】剩餘 {days_left} 天")
