@@ -10,7 +10,7 @@ st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide"
 # 2. 建立連線
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 🧠 AI 智慧與案例模組 (保持不變) ---
+# --- 🧠 AI 智慧與案例模組 ---
 def display_ai_law_wall(category):
     law_db = {
         "廢棄物清理計畫書": [
@@ -31,22 +31,30 @@ def display_ai_law_wall(category):
             st.markdown(f"""<div style="background-color: #f0f4f8; border-left: 5px solid #2E7D32; padding: 15px; border-radius: 8px; height: 180px;"><span style="background-color: #2E7D32; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">{item['tag']}</span><p style="margin-top: 10px; font-weight: bold; color: #333;">📅 {item['date']}</p><p style="font-size: 0.85rem; color: #333;">{item['content']}</p></div>""", unsafe_allow_html=True)
 
 def display_penalty_cases():
-    st.markdown("## ⚖️ 近一年環保裁處與媒體關注焦點")
+    st.markdown("## ⚖️ 近一年環保裁處、重大社會新聞與大數據監控")
+    
+    # 1. 高風險紅框案例 (本公司直接相關)
     high_risk_cases = [
         {"type": "廢棄物類", "law": "廢棄物清理法第 31 條", "reason": "未依規定之格式、內容、頻率申報廢棄物產出及清理情形。", "penalty": "罰鍰 NT$ 6,000 ~ 300 萬", "key": "【漏報】廢清書變更後，未於 15 日內完成線上報備。"},
         {"type": "水污染類", "law": "水污染防治法第 14 條", "reason": "排放廢污水不符合放流水標準。", "penalty": "罰鍰 NT$ 6 萬 ~ 2,000 萬", "key": "【超標】雨天逕流廢水未經妥善收集處理即排入溝渠。"}
     ]
+    
+    # 2. 社會重大事件與網路監控 (加入高雄天坑、焚化爐爭議)
     media_cases = [
-        {"src": "環保新聞網", "topic": "清運 GPS 軌跡稽查", "desc": "針對「清運車輛停等異常」進行大數據比對，直接擴大稽查至產源工廠。", "advice": "需監督厂商如實報備路線。"},
-        {"src": "網路陳情熱點", "topic": "民眾拍照檢舉露天堆置", "desc": "地方社群針對「廢棄物露天堆置未覆蓋」之拍照檢舉件數激增。", "advice": "廠區堆置區務必保持整潔並確實覆蓋。"}
+        {"src": "重大社會新聞", "topic": "高雄天坑意外揭發地下廢棄物掩埋", "desc": "因道路塌陷意外發現地下遭非法回填建築與事業廢棄物。此事件引發全台針對「回填土方來源」之溯源追蹤大稽查。", "advice": "確保清除處理對象具備合法證照，並嚴審流向證明。"},
+        {"src": "鄰避設施熱點", "topic": "焚化爐擴建與新設抗爭熱區", "desc": "各地焚化爐處理量趨於飽和，新設地點（如彰化、桃園等）抗爭強烈。環保局正針對「高熱值廢棄物」進行進廠篩選與限縮。", "advice": "強化資源分類，降低不可燃/高熱值廢材比例。"},
+        {"src": "大數據監控", "topic": "清運車輛 GPS 異常停點稽查", "desc": "環保署大數據平臺監控到多起「非申報路徑停等」案件。此類異常停點即判定為疑似非法傾倒點。", "advice": "清運過程應與三聯單標記路線一致，避免中途任意停靠。"},
+        {"src": "平台陳情趨勢", "topic": "廠區周界空氣品質/異味民眾檢舉", "desc": "民眾對於環境異味敏感度大幅提升，網路平台（如 PTT、Dcard 地區版）檢舉通報件數增加。", "advice": "廠區應定期巡查防制設備操作狀況並做成紀錄。"}
     ]
-    for case in high_risk_cases:
-        st.markdown(f"""<div style="background-color: #fff5f5; border-left: 5px solid #e53935; padding: 15px; margin-bottom: 15px; border-radius: 8px;"><b style="color: #e53935; font-size: 1.1rem;">🚨 [高風險] {case['type']} - {case['law']}</b><p style="margin: 8px 0; color: #333;">事由：{case['reason']}</p><p style="color: #d32f2f;">裁罰：{case['penalty']}</p><p style="background-color: #e8eaf6; padding: 5px; border-radius: 4px; color: #1a237e;">💡 避險：{case['key']}</p></div>""", unsafe_allow_html=True)
-    st.markdown("### 🌐 媒體與網路監控趨勢")
-    for m in media_cases:
-        st.markdown(f"""<div style="background-color: #ffffff; border-left: 5px solid #0288d1; padding: 12px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #e1f5fe;"><b style="color: #01579b;">[{m['src']}] {m['topic']}</b><p style="font-size: 0.9rem; margin: 5px 0; color: #333333;">{m['desc']}</p><p style="font-size: 0.85rem; color: #0277bd;">📢 建議：{m['advice']}</p></div>""", unsafe_allow_html=True)
 
-# 3. 數據加載
+    for case in high_risk_cases:
+        st.markdown(f"""<div style="background-color: #fff5f5; border-left: 5px solid #e53935; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"><b style="color: #e53935; font-size: 1.1rem;">🚨 [高風險] {case['type']} - {case['law']}</b><p style="margin: 8px 0; color: #333;"><b>事由：</b>{case['reason']}</p><p style="color: #d32f2f;"><b>裁罰：</b>{case['penalty']}</p><p style="background-color: #e8eaf6; padding: 5px; border-radius: 4px; color: #1a237e;"><b>💡 避險核心：</b>{case['key']}</p></div>""", unsafe_allow_html=True)
+
+    st.markdown("### 🌐 社會重大事件與大數據動態")
+    for m in media_cases:
+        st.markdown(f"""<div style="background-color: #ffffff; border-left: 5px solid #0288d1; padding: 12px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #e1f5fe;"><b style="color: #01579b;">[{m['src']}] {m['topic']}</b><p style="font-size: 0.9rem; margin: 5px 0; color: #333333;">{m['desc']}</p><p style="font-size: 0.85rem; color: #0277bd;"><b>📢 管理建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
+
+# 3. 數據加載 (其餘功能凍結)
 @st.cache_data(ttl=5)
 def load_all_data():
     m_df = conn.read(worksheet="大豐既有許可證到期提醒")
@@ -69,14 +77,11 @@ try:
     logs_df = load_logs()
     today = pd.Timestamp(date.today())
 
-    # --- 📂 側邊選單 (文字調整) ---
+    # --- 📂 側邊選單 ---
     st.sidebar.markdown("## 🏠 系統導航")
-    
-    # 調整 1：「系統首頁(重置)」改為「系統首頁」
     if st.sidebar.button("🏠 系統首頁", use_container_width=True):
         st.session_state.mode = "management"
-        if "selected_actions" in st.session_state:
-            st.session_state.selected_actions = set()
+        if "selected_actions" in st.session_state: st.session_state.selected_actions = set()
         st.rerun()
 
     if st.sidebar.button("🔄 刷新資料庫", use_container_width=True):
@@ -84,10 +89,7 @@ try:
 
     if "mode" not in st.session_state: st.session_state.mode = "management"
     if st.sidebar.button("📋 許可證辦理系統", use_container_width=True): st.session_state.mode = "management"; st.rerun()
-    
-    # 調整 2：「既有文件下載區」改為「許可下載區」
     if st.sidebar.button("📁 許可下載區", use_container_width=True): st.session_state.mode = "library"; st.rerun()
-    
     if st.sidebar.button("⚖️ 近期裁處案例", use_container_width=True): st.session_state.mode = "cases"; st.rerun()
 
     # --- 渲染邏輯 ---
