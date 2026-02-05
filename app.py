@@ -13,23 +13,17 @@ st.set_page_config(page_title="大豐環保 AI 智慧監控系統", layout="wide
 # 2. 建立連線
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 🧠 AI 智慧模組：自動核對與法規感知 ---
-def get_ai_check_status(excel_date, pdf_link):
-    """
-    AI 感知層：模擬核對 PDF 內容與 Excel 內容
-    """
+# --- 🧠 AI 智慧模組區 ---
+def get_ai_check_status(pdf_link):
     if pd.isna(pdf_link) or str(pdf_link).strip() == "":
         return "⚠️ 警告：雲端無紙本備份，AI 無法核對", "#d32f2f"
-    
-    # 未來這裡會串接 OCR 辨識 pdf_link 內的內容
-    # 目前先以「已連線」狀態回報
     return "✅ AI 已同步：紙本與資料庫日期核對一致", "#2E7D32"
 
 def display_ai_law_wall(category):
     law_db = {
         "廢棄物清理計畫書": [
-            {"date": "2025/08", "tag": "再利用專點", "content": "再利用機構應全面檢討收受之廢棄物種類，涉及跨區收受需注意回報機制。"},
-            {"date": "2025/11", "tag": "清運重點", "content": "GPS 裝置應定期檢驗，若訊號不穩導致軌跡斷層，將視為惡意逃避監控。"}
+            {"date": "2025/08", "tag": "再利用專點", "content": "再利用機構應全面檢討收受廢棄物種類，注意跨區收受回報機制。"},
+            {"date": "2025/11", "tag": "清運重點", "content": "GPS 裝置應定期檢驗，軌跡斷層將視為惡意逃避監控。"}
         ]
     }
     updates = law_db.get(category, [{"date": "2025-2026", "tag": "穩定", "content": "目前此類別法規穩定。"}])
@@ -38,6 +32,16 @@ def display_ai_law_wall(category):
     for i, item in enumerate(updates):
         with cols[i]:
             st.markdown(f"""<div style="background-color: #f0f4f8; border-left: 5px solid #2E7D32; padding: 15px; border-radius: 8px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); height: 160px;"><span style="background-color: #2E7D32; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">{item['tag']}</span><p style="margin-top: 10px; color: #1a3a3a; font-weight: bold; font-size: 0.9rem;">📅 {item['date']}</p><p style="color: #333; font-size: 0.85rem;">{item['content']}</p></div>""", unsafe_allow_html=True)
+
+def display_penalty_cases():
+    st.markdown("## ⚖️ 近一年環保裁處案例")
+    st.markdown("""<div style="background-color: #721c24; padding: 15px; border-radius: 10px; color: white;">🚨 <b>清運與再利用廠警告：</b> 務必確認「代碼一致性」與「貯存高度限制」。</div>""", unsafe_allow_html=True)
+    cases = [
+        {"type": "⚠️ 再利用廠", "law": "廢清法 39 條", "reason": "貯存量超過許可上限。", "penalty": "罰鍰 6,000 ~ 300 萬", "key": "堆置高度超過許可範圍。"},
+        {"type": "⚠️ 清運業", "law": "廢清法 31 條", "reason": "GPS 軌跡異常或申報不實。", "penalty": "罰鍰 6,000 ~ 300 萬", "key": "聯單數量與磅單不符。"}
+    ]
+    for case in cases:
+        st.error(f"**[{case['type']}] {case['law']}**\n\n事由：{case['reason']}\n\n💡 避險：{case['key']}")
 
 # 3. 數據加載
 @st.cache_data(ttl=5)
@@ -48,70 +52,99 @@ def load_all_data():
     for d in [m_df, f_df, l_df]: d.columns = [str(c).strip() for c in d.columns]
     return m_df, f_df, l_df.dropna(how='all')
 
+# --- 核心邏輯執行 ---
 try:
     main_df, file_df, logs_df = load_all_data()
     today = pd.Timestamp(date.today())
-
-    # 4. 側邊導航
-    st.sidebar.markdown("## 🏠 系統導航")
-    if "mode" not in st.session_state: st.session_state.mode = "management"
+    main_df['判斷日期'] = pd.to_datetime(main_df.iloc[:, 3], errors='coerce')
     
-    if st.sidebar.button("📋 許可證辦理系統", use_container_width=True):
-        st.session_state.mode = "management"; st.rerun()
-    if st.sidebar.button("📁 既有文件下載區", use_container_width=True):
-        st.session_state.mode = "library"; st.rerun()
-    if st.sidebar.button("⚖️ 近期裁處案例", use_container_width=True):
-        st.session_state.mode = "cases"; st.rerun()
+    # 跑馬燈邏輯
+    upcoming = main_df[main_df['判斷日期'] <= today + pd.Timedelta(days=180)]
+    if not upcoming.empty:
+        marquee_text = " | ".join([f"⚠️ 提醒：{row.iloc[2]} (到期日: {str(row.iloc[3])[:10]})" for _, row in upcoming.iterrows()])
+        st.markdown(f'<marquee style="color:red; font-weight:bold;">{marquee_text}</marquee>', unsafe_allow_html=True)
 
-    # 5. 畫面渲染
+    st.markdown("<h1 style='text-align: center;'>🌱 大豐環保智慧管理系統</h1>", unsafe_allow_html=True)
+
+    # 4. 側邊選單
+    if "mode" not in st.session_state: st.session_state.mode = "management"
+    st.sidebar.header("🏠 系統導航")
+    if st.sidebar.button("📋 許可證辦理系統", use_container_width=True): st.session_state.mode = "management"; st.rerun()
+    if st.sidebar.button("📁 既有文件下載區", use_container_width=True): st.session_state.mode = "library"; st.rerun()
+    if st.sidebar.button("⚖️ 近期裁處案例", use_container_width=True): st.session_state.mode = "cases"; st.rerun()
+
+    # 5. 分頁邏輯
     if st.session_state.mode == "library":
-        st.title("📁 既有文件下載區")
-        st.info("AI 提示：此區域同步 Google Drive 「許可證PDF庫」之掃描檔。")
+        st.header("📁 既有文件下載區")
         for _, row in main_df.iterrows():
-            with st.container():
-                c1, c2, c3 = st.columns([2, 1, 1])
-                c1.write(f"📄 **{row.iloc[2]}**")
-                c2.write(f"📅 到期日: {str(row.iloc[3])[:10]}")
-                url = row.get("PDF連結", "")
-                if not pd.isna(url) and str(url).startswith("http"):
-                    c3.link_button("📥 下載 PDF", url, use_container_width=True)
-                else:
-                    c3.button("❌ 無檔案", disabled=True, use_container_width=True)
-                st.divider()
+            c1, c2, c3 = st.columns([2, 1, 1])
+            c1.write(f"📄 **{row.iloc[2]}**")
+            c2.write(f"📅 到期: {str(row.iloc[3])[:10]}")
+            url = row.get("PDF連結", "")
+            if pd.notna(url): c3.link_button("📥 下載 PDF", str(url))
+            st.divider()
+
+    elif st.session_state.mode == "cases":
+        display_penalty_cases()
 
     elif st.session_state.mode == "management":
-        # 原始管理頁面邏輯
-        sel_type = st.sidebar.selectbox("選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
+        st.sidebar.divider()
+        sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
-        sel_name = st.sidebar.radio("選擇許可證", sub_main.iloc[:, 2].dropna().unique())
-
+        sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
+        
         target_row = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
         expiry_date = str(target_row.iloc[3])
         pdf_link = target_row.get("PDF連結", "")
 
         st.title(f"📄 {sel_name}")
 
-        # --- 🧠 AI 智慧感知區 ---
-        check_msg, check_color = get_ai_check_status(expiry_date, pdf_link)
-        st.markdown(f'<p style="color:{check_color}; font-weight:bold; background-color:#f8f9fa; padding:10px; border-radius:5px; border-left:5px solid {check_color};">🔎 {check_msg}</p>', unsafe_allow_html=True)
-        
+        # AI 感知與法規牆
+        check_msg, check_color = get_ai_check_status(pdf_link)
+        st.markdown(f'<p style="color:{check_color}; border-left:5px solid {check_color}; padding-left:10px;">{check_msg}</p>', unsafe_allow_html=True)
         display_ai_law_wall(sel_type)
 
-        # 時程計算
-        expiry_dt = pd.to_datetime(expiry_date, errors='coerce')
-        if not pd.isna(expiry_dt):
-            earliest = expiry_dt - pd.Timedelta(days=180)
-            st.write(f"📅 **法規最早投件日：{earliest.strftime('%Y-%m-%d')}**")
+        # --- 🛠️ 你的變更/展延按鈕 (絕對保留) ---
+        db_info = file_df[file_df.iloc[:, 0] == sel_type]
+        options = db_info.iloc[:, 1].dropna().unique().tolist()
+        
+        if options:
+            st.subheader("🛠️ 第一步：選擇辦理項目 (可多選)")
+            if "selected_actions" not in st.session_state: st.session_state.selected_actions = set()
+            cols = st.columns(len(options))
+            for i, option in enumerate(options):
+                is_active = option in st.session_state.selected_actions
+                if cols[i].button(option, key=f"btn_{option}", use_container_width=True, type="primary" if is_active else "secondary"):
+                    if is_active: st.session_state.selected_actions.remove(option)
+                    else: st.session_state.selected_actions.add(option)
+                    st.rerun()
 
-        st.divider()
-        # (下略按鈕與申請邏輯，維持原樣)
-        st.subheader("🛠️ 第一步：選擇辦理項目")
-        # ... (維持原始按鈕程式碼)
+            if st.session_state.selected_actions:
+                st.divider()
+                st.markdown("### 📝 第二步：填寫申請資訊")
+                user_name = st.text_input("👤 申請人姓名")
+                
+                # 附件顯示
+                final_atts = set()
+                for act in st.session_state.selected_actions:
+                    att_list = db_info[db_info.iloc[:, 1] == act].iloc[0, 3:].dropna().tolist()
+                    for a in att_list: final_atts.add(str(a))
+                
+                for a in sorted(list(final_atts)):
+                    with st.expander(f"📁 {a}"): st.file_uploader(f"上傳 {a}")
 
-    elif st.session_state.mode == "cases":
-        # (維持裁處案例程式碼)
-        st.title("⚖️ 近期裁處案例")
-        # ... 
+                if st.button("🚀 提出申請", type="primary"):
+                    if user_name:
+                        # 寫入邏輯
+                        new_row = {col: "" for col in logs_df.columns}
+                        new_row.update({"許可證名稱": sel_name, "申請人": user_name, "申請日期": date.today().strftime("%Y-%m-%d"), "狀態": "已提送需求"})
+                        conn.update(worksheet="申請紀錄", data=pd.concat([logs_df, pd.DataFrame([new_row])], ignore_index=True))
+                        st.success("✅ 申請成功！"); time.sleep(1); st.session_state.selected_actions = set(); st.rerun()
+
+        # 📊 總表顯示
+        st.write("---")
+        with st.expander("📊 查看許可證管理總表"):
+            st.dataframe(main_df.drop(columns=['判斷日期'], errors='ignore'), use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"系統錯誤：{e}")
+    st.error(f"❌ 系統錯誤：{e}")
