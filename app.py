@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 import time
+import smtplib  # 補回關鍵組件
+from email.mime.text import MIMEText
+from email.header import Header
 from streamlit_gsheets import GSheetsConnection
 import requests
 import pytesseract
@@ -33,7 +36,7 @@ def ai_verify_background(pdf_link, sheet_date):
     except:
         return True, "跳過辨識"
 
-# 2. 頁面基礎設定 (黑色背景鎖死，文字白色)
+# 2. 頁面基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 st.markdown("""
     <style>
@@ -47,13 +50,13 @@ st.markdown("""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 裁處案例與社會事件 (維持四格排版) ---
+# --- 3. 裁處案例與社會事件 (維持四格，絕不動) ---
 def display_penalty_cases():
     st.markdown("## ⚖️ 近一年重大環保事件 (深度解析)")
     cases = [
         {"t": "2025/09 屏東非法棄置與有害廢液直排案", "c": "清運包商非法直排強酸液，產源工廠因未落實監督被重罰 600 萬並承擔 1,500 萬生態復育費。"},
         {"t": "2026/02 農地盜採回填與 GPS 軌跡回溯稽查", "c": "跨縣市犯罪集團回填 14 萬噸廢棄物。環境部透過 GPS 鎖定多家產源單位，沒收獲利 2.4 億元。"},
-        {"t": "2025/11 高雄工業區廢水監測數據造假案", "c": "特定場區更動 CWMS 監測參數。環保署利用 AI 演算法認定人工造假，沒入相關許可證。"}
+        {"t": "2025/11 高雄工業區廢水監測數據造假案", "c": "特定場區更動 CWMS 監測參數。環境部認定人工造假，沒入相關許可證。"}
     ]
     for case in cases:
         st.markdown(f"""<div style="background-color: #2D0D0D; border-left: 5px solid #e53935; padding: 15px; border-radius: 8px; margin-bottom: 15px;"><b style="color: #ff4d4d;">🚨 {case['t']}</b><p style="color: white; margin-top: 5px;">{case['c']}</p></div>""", unsafe_allow_html=True)
@@ -70,7 +73,7 @@ def display_penalty_cases():
     for i, m in enumerate(news):
         cols[i].markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 160px; margin-bottom: 15px;"><b style="color: #4fc3f7;">{m['topic']}</b><p style="color: white; font-size: 0.85rem;">{m['desc']}</p><p style="color: #81d4fa; font-size: 0.85rem;"><b>📢 建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
 
-# 4. 數據加載 (快取 5 秒確保即時)
+# 4. 數據加載
 @st.cache_data(ttl=5)
 def load_all_data():
     m_df = conn.read(worksheet="大豐既有許可證到期提醒")
@@ -91,9 +94,8 @@ try:
     if st.sidebar.button("📁 許可下載區"): st.session_state.mode = "library"; st.rerun()
     if st.sidebar.button("⚖️ 近期裁處案例"): st.session_state.mode = "cases"; st.rerun()
     st.sidebar.divider()
-    if st.sidebar.button("🔄 更新數據"): st.cache_data.clear(); st.rerun()
+    if st.sidebar.button("🔄 更新資料庫"): st.cache_data.clear(); st.rerun()
 
-    # --- 首頁 ---
     if st.session_state.mode == "home":
         st.title("🚀 大豐環保許可證管理系統")
         st.markdown("---")
@@ -128,7 +130,6 @@ try:
         st.title(f"📄 {sel_name}")
         days_left = (target_main.iloc[3] - today).days
         
-        # --- AI 建議字樣回歸 ---
         r1_c1, r1_c2 = st.columns(2)
         with r1_c1:
             if days_left < 90: st.error(f"🚨 【嚴重警告】剩餘 {days_left} 天")
@@ -168,25 +169,35 @@ try:
                 for item in sorted(list(atts)):
                     with st.expander(f"📁 附件：{item}", expanded=True): st.file_uploader(f"上傳 - {item}", key=f"up_{item}")
                 
-                # --- 發信與 Excel 寫入功能 ---
+                # --- 🚀 關鍵：補回昨日 SMTP 發信邏輯 ---
                 if st.button("🚀 提出申請", type="primary", use_container_width=True):
                     if user:
                         try:
                             # 1. 寫入 Excel
                             history_df = conn.read(worksheet="申請紀錄")
-                            new_entry = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user, "申請日期": datetime.now().strftime("%Y-%m-%d"), "狀態": "待處理", "核准日期": ""}])
+                            new_entry = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user, "申請日期": datetime.now().strftime("%Y-%m-%d"), "狀態": "已提送需求", "核准日期": ""}])
                             updated_history = pd.concat([history_df, new_entry], ignore_index=True)
                             conn.update(worksheet="申請紀錄", data=updated_history)
                             
-                            # 2. 發信提示 (確保顯示 Andy 的信箱)
-                            st.balloons()
-                            st.success(f"✅ 申請成功！Excel 已更新紀錄。")
-                            st.info(f"📧 系統郵件已同步發送至：andy.chen@df-recycle.com")
+                            # 2. SMTP 發信模組 (還原昨日邏輯)
+                            subject = f"【許可證申請】{sel_name}_{user}_{datetime.now().strftime('%Y-%m-%d')}"
+                            body = f"Andy 您好，\n\n同仁 {user} 已提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(st.session_state.selected_actions)}"
                             
+                            msg = MIMEText(body, 'plain', 'utf-8')
+                            msg['Subject'] = Header(subject, 'utf-8')
+                            msg['From'] = st.secrets["email"]["sender"]
+                            msg['To'] = st.secrets["email"]["receiver"]
+                            
+                            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+                                server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
+                                server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
+                            
+                            st.balloons()
+                            st.success(f"✅ 申請成功！Excel 已更新並寄信予 Andy。")
                             st.session_state.selected_actions = set()
                             time.sleep(2); st.rerun()
-                        except Exception as excel_err:
-                            st.error(f"❌ 串接失敗：{excel_err}")
+                        except Exception as err:
+                            st.error(f"❌ 流程失敗：{err}")
                     else: st.warning("⚠️ 請輸入姓名。")
 
     st.divider()
