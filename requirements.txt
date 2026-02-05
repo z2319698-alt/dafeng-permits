@@ -3,3 +3,4 @@ pandas
 requests
 pytesseract
 pdf2image
+st-gsheets-connection
