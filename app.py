@@ -53,12 +53,16 @@ def ai_verify_background(pdf_link, sheet_date):
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 智慧模組與案例 ---
+# --- 3. 模組功能 ---
 def display_welcome_page():
     st.title("🚀 大豐環保許可證管理系統")
     st.markdown("---")
-    st.markdown("### 📢 系統使用指南")
-    st.info("請使用左側選單進行操作：\n1. **許可證辦理**：選擇特定證號並準備申報附件。\n2. **許可下載區**：下載 PDF 並由 AI 自動核對到期日。\n3. **裁處案例**：查看近期法規動態與社會重大事件。")
+    st.markdown("### 📢 系統功能快速導覽")
+    st.info("請點選左側功能選單進行操作：")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("許可證辦理", "快速上傳附件")
+    c2.metric("AI 下載核對", "自動比對 PDF 日期")
+    c3.metric("案例更新", "掌握環保法規動態")
     st.divider()
 
 def display_ai_law_wall(category):
@@ -114,7 +118,6 @@ try:
     main_df, file_df = load_all_data()
     today = pd.Timestamp(date.today())
 
-    # --- 側邊導航 (拆分按鈕) ---
     if "mode" not in st.session_state: st.session_state.mode = "home"
     
     st.sidebar.markdown("## 🏠 系統導航")
@@ -167,6 +170,8 @@ try:
         target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
         
         st.title(f"📄 {sel_name}")
+
+        # --- 重要：補回管制編號與日期 ---
         days_left = (target_main.iloc[3] - today).days
         r1c1, r1c2 = st.columns(2)
         with r1c1:
@@ -175,8 +180,14 @@ try:
             else: st.success(f"✅ 【狀態正常】剩餘 {days_left} 天")
         with r1c2:
             bg = "#ffeded" if days_left < 90 else ("#fff9e6" if days_left < 180 else "#e8f5e9")
-            advice = "立即準備附件申報！" if days_left < 90 else ("建議開始核對附件。" if days_left < 180 else "開始蒐集資料。")
+            advice = "立即辦理申報！" if days_left < 90 else ("建議核對附件。" if days_left < 180 else "狀態良好。")
             st.markdown(f'<div style="background-color:{bg};padding:12px;border-radius:5px;color:#333;border:1px solid #ccc;height:50px;line-height:25px;"><b>🤖 AI 建議：</b>{advice}</div>', unsafe_allow_html=True)
+
+        r2c1, r2c2 = st.columns(2)
+        with r2c1: 
+            st.info(f"🆔 管制編號：{target_main.iloc[1]}")
+        with r2c2: 
+            st.markdown(f'<div style="background-color:#f0f2f6;padding:12px;border-radius:5px;color:#333;border:1px solid #dcdfe6;height:50px;line-height:25px;">📅 許可到期日期：<b>{str(target_main.iloc[3])[:10]}</b></div>', unsafe_allow_html=True)
 
         st.divider()
         display_ai_law_wall(sel_type)
@@ -204,10 +215,10 @@ try:
                 for item in sorted(list(atts)):
                     with st.expander(f"📁 附件：{item}", expanded=True): st.file_uploader(f"上傳檔案 - {item}", key=f"up_{item}")
 
-    # --- 📊 總表 (永遠固定在底部) ---
+    # --- 📊 總覽表：改為可縮放模式 ---
     st.divider()
-    st.subheader("📊 許可證到期總覽表 (全場區)")
-    st.dataframe(main_df, use_container_width=True)
+    with st.expander("📊 點此展開/縮減：許可證到期總覽表 (全場區)", expanded=False):
+        st.dataframe(main_df, use_container_width=True)
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
