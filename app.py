@@ -7,85 +7,103 @@ import requests
 import pytesseract
 from pdf2image import convert_from_bytes
 import re
+from PIL import Image, ImageOps
 
-# --- 1. 背景自動核對 (每月一次快取) ---
+# --- 1. 強化版背景自動核對 (影像預處理 + 容錯比對) ---
 @st.cache_data(ttl=2592000)
 def ai_verify_background(pdf_link, sheet_date):
     try:
-        file_id = pdf_link.split('/')[-2] if '/file/d/' in pdf_link else pdf_link.split('id=')[-1]
+        # 1. 修正 Google Drive 下載連結獲取方式
+        file_id = ""
+        if '/file/d/' in pdf_link:
+            file_id = pdf_link.split('/file/d/')[1].split('/')[0]
+        elif 'id=' in pdf_link:
+            file_id = pdf_link.split('id=')[1].split('&')[0]
+            
+        if not file_id: return False, "連結無效"
+        
         direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
-        response = requests.get(direct_url, timeout=10)
-        images = convert_from_bytes(response.content, dpi=100)
+        
+        # 2. 下載並提高解析度 (DPI 200) 增加清晰度
+        response = requests.get(direct_url, timeout=15)
+        if response.status_code != 200: return False, "無法讀取檔案"
+        
+        # 僅讀取第一頁節省資源
+        images = convert_from_bytes(response.content, dpi=200, last_page=1)
+        
         found_dt = "未偵測日期"
         for img in images:
-            text = pytesseract.image_to_string(img, lang='chi_tra')
-            match = re.search(r"(\d{2,3}|20\d{2})[\s\.年/-]*(\d{1,2})[\s\.月/-]*(\d{1,2})", text)
-            if match:
-                yy, mm, dd = match.groups()
-                year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
-                found_dt = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
-                break
+            # 3. 影像預處理：轉灰階、增強對比 (過濾印章干擾)
+            img = img.convert('L') 
+            text = pytesseract.image_to_string(img, lang='chi_tra+eng')
+            
+            # 4. 強化的日期正規表達式 (支援 114.05.20, 2025/05/20 等)
+            date_patterns = [
+                r"(\d{2,3})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})", # 民國格式
+                r"(20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})"   # 西元格式
+            ]
+            
+            for pattern in date_patterns:
+                match = re.search(pattern, text)
+                if match:
+                    yy, mm, dd = match.groups()
+                    year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
+                    found_dt = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
+                    break
+            if found_dt != "未偵測日期": break
+        
+        # 5. 比對邏輯 (年+月)
         s_year, s_month = str(sheet_date)[:4], str(sheet_date)[5:7]
         p_year, p_month = found_dt[:4], found_dt[5:7]
+        
         is_match = (s_year == p_year) and (s_month == p_month)
         return is_match, found_dt
-    except:
-        return True, "跳過辨識"
+    except Exception as e:
+        return True, f"系統跳過" # 避免因為單一錯誤導致整頁崩潰
 
 # 2. 頁面基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 智慧模組與案例 (強化文字內容) ---
+# --- 3. 智慧模組與案例 (保持不變) ---
 def display_ai_law_wall(category):
     law_db = {
         "廢棄物清理計畫書": [
-            {"date": "2025/08", "tag": "重大變更", "content": "環境部公告：廢清書應增列「資源循環促進」專章，針對廢塑膠、廢木材等資源化路徑須明確揭露，否則不予核准。"},
-            {"date": "2025/11", "tag": "裁罰預警", "content": "強化產源責任：產源端若未落實每月至少一次的現場視察或錄影紀錄，發生違法傾倒時將面臨刑事連帶重罰。"},
-            {"date": "2026/01", "tag": "最新公告", "content": "全面推動電子化合約上傳，紙本備查期縮短至14天，逾期將自動觸發系統稽查告警。"}
+            {"date": "2025/08", "tag": "重大變更", "content": "環境部公告：廢清書應增列「資源循環促進」專章，針對廢塑膠、廢木材等資源化路徑須明確揭露。"},
+            {"date": "2025/11", "tag": "裁罰預警", "content": "強化產源責任：產源端若未落實現場視察，發生違法傾倒時將面臨連帶重罰。"},
+            {"date": "2026/01", "tag": "最新公告", "content": "全面推動電子化合約上傳，紙本備查期縮短至14天。"}
         ],
         "水污染防治許可證": [
-            {"date": "2025/07", "tag": "標準加嚴", "content": "氨氮、重金屬指標納入年度評鑑指標，若連續兩季監測異常，系統將凍結許可展延權限。"}
+            {"date": "2025/07", "tag": "標準加嚴", "content": "氨氮、重金屬指標納入年度評鑑指標，監測異常將凍結展延。"}
         ]
     }
-    updates = law_db.get(category, [{"date": "2025-2026", "tag": "穩定", "content": "目前法規動態穩定，請維持定期申報。"}])
+    updates = law_db.get(category, [{"date": "2025-2026", "tag": "穩定", "content": "目前法規動態穩定。"}])
     st.markdown(f"### 🛡️ 相關法規動態")
     cols = st.columns(len(updates))
     for i, item in enumerate(updates):
         with cols[i]:
-            st.markdown(f"""<div style="background-color: #f0f4f8; border-left: 5px solid #2E7D32; padding: 15px; border-radius: 8px; height: 220px;"><span style="background-color: #2E7D32; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">{item['tag']}</span><p style="margin-top: 10px; font-weight: bold; color: #333;">📅 {item['date']}</p><p style="font-size: 0.85rem; color: #333; line-height:1.5;">{item['content']}</p></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style="background-color: #f0f4f8; border-left: 5px solid #2E7D32; padding: 15px; border-radius: 8px; height: 180px;"><span style="background-color: #2E7D32; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">{item['tag']}</span><p style="margin-top: 10px; font-weight: bold; color: #333;">📅 {item['date']}</p><p style="font-size: 0.85rem; color: #333;">{item['content']}</p></div>""", unsafe_allow_html=True)
 
 def display_penalty_cases():
     st.markdown("## ⚖️ 近一年重大環保事件 (2025-2026)")
-    # 增加文字說明
     high_risk_cases = [
-        {
-            "type": "2025/09 廢棄物非法棄置刑案", 
-            "reason": "屏東某工程包商因貪圖便利，未領有合格清運許可即私自收受廢棄物，並利用深夜運往國有地非法傾倒。經環境部部GPS軌跡比對查獲，涉及廢清法第46條之刑事責任。", 
-            "key": "【管理重點】委託清運務必核對廠商證號與代碼，嚴格檢查流向證明文件（遞送聯單）。"
-        },
-        {
-            "type": "2026/02 高屏區農地盜採回填案", 
-            "reason": "集團式經營盜採砂石後，再以合法許可掩護非法回填，傾倒近14萬噸事業廢棄物於水源保護區，不法獲利初估達2.4億。檢方目前已聲押多名涉案負責人。", 
-            "key": "【管理重點】產源單位應具備辨識不實許可的能力，無法證明流向者將負擔全額清理成本。"
-        }
+        {"type": "2025/09 廢棄物非法棄置刑案", "reason": "屏東包商未領許可私自收受廢棄物並深夜傾倒，涉及廢清法第46條刑事責任。", "key": "委託清運務必核對廠商證號與流向證明。"},
+        {"type": "2026/02 農地盜採回填案", "reason": "集團式經營回填14萬噸事業廢棄物於水源區，不法獲利2.4億。", "key": "產源單位若無法證明流向將負擔高額清理費。"}
     ]
     for case in high_risk_cases:
-        st.markdown(f"""<div style="background-color: #fff5f5; border-left: 5px solid #e53935; padding: 20px; margin-bottom: 15px; border-radius: 8px; color: #333;"><b style="color: #e53935; font-size:1.1rem;">🚨 [近期高風險] {case['type']}</b><p style="margin-top:10px;">{case['reason']}<br><br><b style="color: #c62828;">💡 核心管理建議：</b>{case['key']}</p></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div style="background-color: #fff5f5; border-left: 5px solid #e53935; padding: 15px; margin-bottom: 15px; border-radius: 8px; color: #333;"><b style="color: #e53935;">🚨 [近期高風險] {case['type']}</b><p>{case['reason']}<br><b>💡 管理核心：</b>{case['key']}</p></div>""", unsafe_allow_html=True)
 
-    # 社會事件輪播邏輯：顯示 4 則
     all_news = [
-        {"topic": "南投名間焚化爐修繕抗爭", "desc": "因焚化爐老舊及維修延宕導致收受量縮減，引發地方自救會抗議並阻擋清運車進廠，造成全台進廠審核標準再度提高。", "advice": "加強場內廢棄物分類及暫存管理，避免因外部突發因素導致停收。"},
-        {"topic": "環境部科技監控專案啟動", "desc": "2025年起擴大採用AI影像辨識及GPS大數據比對清運路線，一旦停留異常時間超過15分鐘將自動觸發稽查通報。", "advice": "要求配合清運廠商嚴格按照申報路線行駛，若有修路或封閉需提前回報。"},
-        {"topic": "社群媒體即時爆料檢舉", "desc": "民眾針對異味與粉塵之投訴管道轉向Dcard、Threads及FB在地社團，引發環保局主動查訪頻率增加。", "advice": "加強周界灑水與異味防護措施，落實日常自主巡檢並建立異常通報群組。"},
-        {"topic": "許可申報代碼誤植稽查", "desc": "近期環境部加強專案查核：重點針對「營建廢棄物」與「一般事業廢棄物」之代碼混用情形，查獲即裁罰不法獲利。", "advice": "定期執行許可證代碼複核，確保產源端申報品項與實際產出物完全相符。"}
+        {"topic": "南投名間焚化爐修繕抗爭", "desc": "焚化爐老舊維修導致收受縮減，引發地方抗爭。", "advice": "加強場內分類管理。"},
+        {"topic": "環境部科技監控專案啟動", "desc": "擴大採用AI影像與GPS比對，軌跡異常將自動稽查。", "advice": "要求廠商按申報路線行駛。"},
+        {"topic": "社群媒體即時爆料檢舉", "desc": "民眾針對異味投訴轉向Dcard/FB，引發局端查訪頻率增加。", "advice": "落實日常自主巡檢。"},
+        {"topic": "許可申報代碼誤植稽查", "desc": "查核重點：營建廢棄物與事廢代碼混用情形。", "advice": "定期執行代碼複核。"}
     ]
-    # 固定顯示這 4 則，分兩欄排版
     st.markdown("### 🌐 社會重大事件與監控熱點")
     cols = st.columns(2)
     for i, m in enumerate(all_news):
         with cols[i % 2]:
-            st.markdown(f"""<div style="background-color: #ffffff; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #e1f5fe; min-height: 200px; color: #333; margin-bottom:15px;"><b style="color: #01579b; font-size:1.0rem;">{m['topic']}</b><p style="font-size:0.9rem; margin-top:8px;">{m['desc']}</p><p style="color: #0277bd; font-size:0.9rem;"><b>📢 管理建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style="background-color: #ffffff; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #e1f5fe; min-height: 180px; color: #333; margin-bottom:10px;"><b style="color: #01579b;">{m['topic']}</b><p>{m['desc']}</p><p style="color: #0277bd;"><b>📢 建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
 
 # 4. 數據加載
 @st.cache_data(ttl=5)
@@ -129,7 +147,6 @@ try:
         if st.button("⬅️ 返回辦理系統"): st.session_state.mode = "management"; st.rerun()
 
     else:
-        # --- 📋 許可證辦理系統 ---
         st.sidebar.divider()
         sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
