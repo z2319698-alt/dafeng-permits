@@ -33,7 +33,7 @@ def ai_verify_background(pdf_link, sheet_date):
     except:
         return True, "跳過辨識"
 
-# 2. 頁面基礎設定 (黑色背景鎖死)
+# 2. 頁面基礎設定 (黑色背景鎖死，文字白色)
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 st.markdown("""
     <style>
@@ -70,7 +70,7 @@ def display_penalty_cases():
     for i, m in enumerate(news):
         cols[i].markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 160px; margin-bottom: 15px;"><b style="color: #4fc3f7;">{m['topic']}</b><p style="color: white; font-size: 0.85rem;">{m['desc']}</p><p style="color: #81d4fa; font-size: 0.85rem;"><b>📢 建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
 
-# 4. 數據加載
+# 4. 數據加載 (快取 5 秒確保即時)
 @st.cache_data(ttl=5)
 def load_all_data():
     m_df = conn.read(worksheet="大豐既有許可證到期提醒")
@@ -93,6 +93,7 @@ try:
     st.sidebar.divider()
     if st.sidebar.button("🔄 更新數據"): st.cache_data.clear(); st.rerun()
 
+    # --- 首頁 ---
     if st.session_state.mode == "home":
         st.title("🚀 大豐環保許可證管理系統")
         st.markdown("---")
@@ -127,7 +128,7 @@ try:
         st.title(f"📄 {sel_name}")
         days_left = (target_main.iloc[3] - today).days
         
-        # --- AI 建議文字修正回歸 ---
+        # --- AI 建議字樣回歸 ---
         r1_c1, r1_c2 = st.columns(2)
         with r1_c1:
             if days_left < 90: st.error(f"🚨 【嚴重警告】剩餘 {days_left} 天")
@@ -177,9 +178,9 @@ try:
                             updated_history = pd.concat([history_df, new_entry], ignore_index=True)
                             conn.update(worksheet="申請紀錄", data=updated_history)
                             
-                            # 2. 觸發發信提示 (補回原本設定好的發信路徑)
+                            # 2. 發信提示 (確保顯示 Andy 的信箱)
                             st.balloons()
-                            st.success(f"✅ 申請成功！Excel 已更新。")
+                            st.success(f"✅ 申請成功！Excel 已更新紀錄。")
                             st.info(f"📧 系統郵件已同步發送至：andy.chen@df-recycle.com")
                             
                             st.session_state.selected_actions = set()
