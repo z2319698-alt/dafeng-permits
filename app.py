@@ -31,8 +31,9 @@ def ai_verify_background(pdf_link, sheet_date):
             if match:
                 yy, mm, dd = match.groups()
                 year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
+                pdf_dt = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
                 is_match = (str(sheet_date)[:4] == str(year))
-                return is_match, f"{year}-{mm.zfill(2)}-{dd.zfill(2)}", img
+                return is_match, pdf_dt, img
         return True, "跳過辨識", None
     except:
         return True, "跳過辨識", None
@@ -122,7 +123,7 @@ try:
                         with col_fix:
                             st.write("🔧 **手動校正**")
                             new_date = st.date_input("正確到期日", value=p_date if pd.notnull(p_date) else date.today(), key=f"fix_{idx}")
-                            if st.button("確認修正", key=f"btn_fix_{idx}", type="primary"):
+                            if st.button("確認修正", key=f"btn_fix_{idx}", type="primary", use_container_width=True):
                                 main_df.loc[idx, main_df.columns[3]] = pd.to_datetime(new_date)
                                 conn.update(worksheet="大豐既有許可證到期提醒", data=main_df)
                                 st.success("已更新！"); st.cache_data.clear(); time.sleep(1); st.rerun()
@@ -139,7 +140,6 @@ try:
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
         sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
         target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
-        
         st.title(f"📄 {sel_name}")
         days_left = (target_main.iloc[3] - today).days
         r1_c1, r1_c2 = st.columns(2)
@@ -151,11 +151,9 @@ try:
             adv_txt = "🔴 立即申請" if days_left < 90 else "🟡 準備附件" if days_left < 180 else "🟢 定期複核"
             bg_color = "#4D0000" if days_left < 90 else "#332B00" if days_left < 180 else "#0D2D0D"
             st.markdown(f'<div style="background-color:{bg_color};padding:12px;border-radius:5px;border:1px solid #444;height:52px;line-height:28px;"><b>🤖 AI 建議：</b>{adv_txt}</div>', unsafe_allow_html=True)
-
         r2c1, r2c2 = st.columns(2)
         with r2c1: st.info(f"🆔 管制編號：{target_main.iloc[1]}")
         with r2c2: st.markdown(f'<div style="background-color:#262730;padding:12px;border-radius:5px;border:1px solid #444;height:52px;line-height:28px;">📅 許可到期：<b>{str(target_main.iloc[3])[:10]}</b></div>', unsafe_allow_html=True)
-
         st.divider()
         db_info = file_df[file_df.iloc[:, 0] == sel_type]
         options = db_info.iloc[:, 1].dropna().unique().tolist()
@@ -168,7 +166,6 @@ try:
                     if opt in st.session_state.selected_actions: st.session_state.selected_actions.remove(opt)
                     else: st.session_state.selected_actions.add(opt)
                     st.rerun()
-            
             if st.session_state.selected_actions:
                 st.divider(); st.markdown("### 📝 第二步：附件上傳區")
                 user = st.text_input("👤 申請人姓名")
@@ -179,15 +176,15 @@ try:
                         for item in rows.iloc[0, 3:].dropna().tolist(): atts.add(str(item).strip())
                 for item in sorted(list(atts)):
                     with st.expander(f"📁 附件：{item}", expanded=True): st.file_uploader(f"上傳 - {item}", key=f"up_{item}")
-                
                 if st.button("🚀 提出申請", type="primary", use_container_width=True):
                     if user:
                         try:
+                            # 更新 Google Sheets
                             history_df = conn.read(worksheet="申請紀錄")
                             new_entry = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user, "申請日期": datetime.now().strftime("%Y-%m-%d"), "狀態": "已提送需求", "核准日期": ""}])
                             updated_history = pd.concat([history_df, new_entry], ignore_index=True)
                             conn.update(worksheet="申請紀錄", data=updated_history)
-                            
+                            # 收信功能 (SMTP)
                             subject = f"【許可證申請】{sel_name}_{user}_{datetime.now().strftime('%Y-%m-%d')}"
                             body = f"Andy 您好，\n\n同仁 {user} 已提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(st.session_state.selected_actions)}"
                             msg = MIMEText(body, 'plain', 'utf-8'); msg['Subject'] = Header(subject, 'utf-8')
@@ -195,9 +192,7 @@ try:
                             with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
                                 server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
                                 server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
-                            
-                            st.balloons(); st.success(f"✅ 申請成功！Excel 已更新並寄信予 Andy。")
-                            st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
+                            st.balloons(); st.success(f"✅ 申請成功並寄信給 Andy！"); st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
                         except Exception as err: st.error(f"❌ 流程失敗：{err}")
 
     st.divider()
