@@ -23,35 +23,27 @@ def get_pdf_images(pdf_link):
         direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
         response = requests.get(direct_url, timeout=30)
         if response.status_code != 200: return None
-        # 提高 DPI 到 200 確保數字辨識清晰
         return convert_from_bytes(response.content, dpi=200)
     except:
         return None
 
 def ai_verify_logic(images, sheet_date):
     if not images: return False, "無法讀取", 0, None
-    # 強化版正規表達式：抓取所有可能的日期格式
     date_pattern = r"(\d{2,3}|20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})"
-    
     for i, img in enumerate(images):
-        # 影像強化：轉灰階 + 自動對比
         gray_img = img.convert('L')
         enhanced_img = ImageOps.autocontrast(gray_img)
         page_text = pytesseract.image_to_string(enhanced_img, lang='chi_tra+eng')
-        
-        # 進行匹配 (原始與去空格版本)
         match = re.search(date_pattern, page_text)
         if not match:
             clean_text = re.sub(r'\s+', '', page_text)
             match = re.search(date_pattern, clean_text)
-            
         if match:
             yy, mm, dd = match.groups()
             year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
             pdf_dt_str = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
             is_match = (str(sheet_date)[:4] == str(year))
             return is_match, pdf_dt_str, i, img
-            
     return False, "未偵測到日期", 0, images[0]
 
 # --- 2. 頁面基礎設定 ---
@@ -68,7 +60,7 @@ st.markdown("""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 裁處案例與社會事件 ---
+# --- 3. 裁處案例與社會事件 (補完版) ---
 def display_penalty_cases():
     st.markdown("## ⚖️ 近一年重大環保事件 (深度解析)")
     cases = [
@@ -78,6 +70,18 @@ def display_penalty_cases():
     ]
     for case in cases:
         st.markdown(f"""<div style="background-color: #2D0D0D; border-left: 5px solid #e53935; padding: 15px; border-radius: 8px; margin-bottom: 15px;"><b style="color: #ff4d4d;">🚨 {case['t']}</b><p style="color: white; margin-top: 5px;">{case['c']}</p></div>""", unsafe_allow_html=True)
+
+    st.markdown("### 🌐 社會重大事件與監控熱點")
+    news = [
+        {"topic": "南投焚化爐修繕抗爭", "desc": "設施修繕導致量縮，居民異味抗爭造成清運受阻。", "advice": "落實巡檢與除臭紀錄。"},
+        {"topic": "環境部科技監控", "desc": "AI 影像與軌跡比對，偏離路線 1 公里即自動觸發稽查。", "advice": "要求廠商按申報路線行駛。"},
+        {"topic": "社群爆料檢舉趨勢", "desc": "Dcard/FB 即時爆料模式增加，引發媒體跟進與頻繁查訪。", "advice": "強化邊界防治並保留作業紀錄。"},
+        {"topic": "許可代碼誤植連罰", "desc": "營建與一般廢棄物代碼混用為近期查核重點。", "advice": "執行內部代碼複核確保一致。"}
+    ]
+    r1c1, r1c2 = st.columns(2); r2c1, r2c2 = st.columns(2)
+    cols = [r1c1, r1c2, r2c1, r2c2]
+    for i, m in enumerate(news):
+        cols[i].markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 160px; margin-bottom: 15px;"><b style="color: #4fc3f7;">{m['topic']}</b><p style="color: white; font-size: 0.85rem;">{m['desc']}</p><p style="color: #81d4fa; font-size: 0.85rem;"><b>📢 建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
 
 @st.cache_data(ttl=5)
 def load_all_data():
@@ -106,19 +110,9 @@ try:
         st.markdown("---")
         st.markdown("### 💡 核心功能導引")
         st.markdown("""
-        * **📋 許可證辦理系統**：
-            * 自動計算許可證到期倒數。
-            * 根據到期天數提供 **AI 建議**（紅色、黃色、綠色狀態）。
-            * 選擇辦理項目後，自動列出所需附件並支援上傳。
-            * **一鍵提出申請**：自動更新 Excel 並寄送通知信件予 Andy。
-        
-        * **📁 許可下載區**：
-            * **AI 自動核對**：系統自動比對 PDF 內容與資料庫效期。
-            * **翻頁核對**：支援多頁 PDF 翻閱查看。
-            * **原地修正**：發現 OCR 辨識異常或資料有誤時，可直接在頁面上修正並同步回傳雲端。
-        
-        * **⚖️ 近期裁處案例**：
-            * 彙整環境部最新稽查熱點與社會重大環保事件，提供預防性建議。
+        * **📋 許可證辦理系統**：自動計算到期倒數並提供 AI 建議與附件上傳申請。
+        * **📁 許可下載區**：AI 自動核對 PDF 效期，支援多頁翻閱與原地修正。
+        * **⚖️ 近期裁處案例**：彙整環境部最新稽查趨勢。
         """)
 
     elif st.session_state.mode == "library":
@@ -202,12 +196,16 @@ try:
                             new_entry = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user, "申請日期": datetime.now().strftime("%Y-%m-%d"), "狀態": "已提送需求", "核准日期": ""}])
                             updated_history = pd.concat([history_df, new_entry], ignore_index=True)
                             conn.update(worksheet="申請紀錄", data=updated_history)
-                            # 寄信邏輯 (使用 st.secrets)
                             st.balloons(); st.success(f"✅ 申請成功！"); st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
                         except Exception as err: st.error(f"❌ 流程失敗：{err}")
 
     elif st.session_state.mode == "cases":
         display_penalty_cases()
+
+    # --- 關鍵：DataFrame 總表與底部區域 ---
+    st.divider()
+    with st.expander("📊 許可證總覽表", expanded=False):
+        st.dataframe(main_df, use_container_width=True)
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
