@@ -33,62 +33,54 @@ def ai_verify_background(pdf_link, sheet_date):
     except:
         return True, "跳過辨識"
 
-# 2. 頁面基礎設定 (回歸黑色背景)
+# 2. 頁面基礎設定 (黑色背景與樣式)
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 st.markdown("""
     <style>
-    /* 全域黑色背景 */
     .stApp { background-color: #0E1117 !important; }
-    /* 文字全部強制白色 */
     p, h1, h2, h3, span, label, .stMarkdown { color: #FFFFFF !important; }
-    /* 修正元件透明度，確保不透明 */
     div[data-testid="stVerticalBlock"] { background-color: transparent !important; opacity: 1 !important; }
-    /* 側邊欄深色 */
     [data-testid="stSidebar"] { background-color: #262730 !important; }
-    /* 表格與卡片文字顏色修正 */
     .stDataFrame { background-color: #FFFFFF; }
-    div[data-baseweb="select"] > div { background-color: #262730 !important; color: white !important; }
     </style>
     """, unsafe_allow_html=True)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 模組功能 ---
-def display_ai_law_wall(category):
-    law_db = {
-        "廢棄物清理計畫書": [
-            {"date": "2025/08", "tag": "重大變更", "content": "環境部公告：廢清書應增列「資源循環促進」專章，針對廢塑膠、廢木材等資源化路徑須明確揭露，未依格式申報將退件重辦。"},
-            {"date": "2025/11", "tag": "裁罰預警", "content": "強化產源責任：產源端若未落實現場視察，發生違法傾倒時將面臨連帶重罰。"},
-            {"date": "2026/01", "tag": "最新公告", "content": "全面推動電子化合約上傳，紙本備查期縮短至14天，逾期將視為許可證不完整。"}
-        ]
-    }
-    updates = law_db.get(category, [{"date": "2025-2026", "tag": "穩定", "content": "目前法規動態穩定。"}])
-    st.markdown(f"### 🛡️ 相關法規動態")
-    cols = st.columns(len(updates))
-    for i, item in enumerate(updates):
-        with cols[i]:
-            st.markdown(f"""<div style="background-color: #1E1E1E; border-left: 5px solid #2E7D32; padding: 15px; border-radius: 8px; height: 180px;"><span style="background-color: #2E7D32; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">{item['tag']}</span><p style="margin-top: 10px; font-weight: bold; color: white;">📅 {item['date']}</p><p style="font-size: 0.85rem; color: #CCCCCC;">{item['content']}</p></div>""", unsafe_allow_html=True)
-
+# --- 3. 裁處案例內容與輪播邏輯 ---
 def display_penalty_cases():
     st.markdown("## ⚖️ 近一年重大環保事件 (2025-2026)")
-    cases = [
-        {"type": "2025/09 屏東非法棄置刑案", "reason": "某知名包商未領有收受許可，私自承攬南部工業廢棄物並於深夜惡意傾倒於河川地，主嫌已遭收押。", "key": "核對廠商證號與流向證明。"},
-        {"type": "2026/02 農地盜採回填案", "reason": "跨縣市集團式經營，非法回填14萬噸事業廢棄物於水源區，獲利2.4億。", "key": "產源單位負擔清理費。"}
-    ]
-    for case in cases:
-        st.markdown(f"""<div style="background-color: #2D0D0D; border-left: 5px solid #e53935; padding: 15px; margin-bottom: 15px; border-radius: 8px;"><b style="color: #ff4d4d;">🚨 [近期高風險] {case['type']}</b><p style="color: white;">{case['reason']}<br><b>💡 管理核心：</b>{case['key']}</p></div>""", unsafe_allow_html=True)
     
+    # 輪播邏輯：每 12 小時切換一次 (AM/PM)
+    is_afternoon = datetime.now().hour >= 12
+    
+    if not is_afternoon:
+        # 上午案例 A
+        st.markdown("""<div style="background-color: #2D0D0D; border-left: 5px solid #e53935; padding: 20px; border-radius: 8px;">
+            <b style="color: #ff4d4d; font-size: 1.2rem;">🚨 [上午快訊] 2025/09 屏東非法棄置刑案與連帶責任</b>
+            <p style="color: white; margin-top: 10px;">
+            本案肇因於某知名清運包商為節省處理成本，未領有有害廢棄物收受許可，卻私自承攬南部工業區之強酸電鍍液。清運車輛於深夜惡意將廢液直接排放至高屏溪上游之河川保護地。
+            <br><b>【法律代價】：</b>主嫌已依廢清法第46條刑事責任收押。產源單位（工廠）因未落實「盡職調查」與「流向追蹤」，遭環保局判定為疏忽監督，面臨連帶行政罰鍰 600 萬元並勒令停工。
+            <br><b>💡 管理核心：</b>委託清運務必於系統查核廠商「當月有效」之證號，嚴禁僅憑口頭合約執行。</p></div>""", unsafe_allow_html=True)
+    else:
+        # 下午案例 B
+        st.markdown("""<div style="background-color: #2D0D0D; border-left: 5px solid #e53935; padding: 20px; border-radius: 8px;">
+            <b style="color: #ff4d4d; font-size: 1.2rem;">🚨 [下午快訊] 2026/02 農地盜採回填案與巨額清理費</b>
+            <p style="color: white; margin-top: 10px;">
+            橫跨三縣市之犯罪集團非法經營「假土石方、真掩埋」，非法回填 14 萬噸營建混合物於一級水源保護區之農地。行政院已組成跨部會專案小組，利用 GPS 軌跡雲端回溯。
+            <br><b>【法律代價】：</b>不法獲利初估 2.4 億元全數沒收。環保署已啟動「代履行」機制，所有無法提供合法流向證明之產源單位，將依比例攤提清理費用，個別公司面臨高達 2,000 萬元之求償。
+            <br><b>💡 管理核心：</b>產源單位必須確保 GPS 軌跡與申報路線 100% 吻合，偏差超過 1 公里即為稽查高風險。</p></div>""", unsafe_allow_html=True)
+
+    st.markdown("---")
     st.markdown("### 🌐 社會重大事件與監控熱點")
     news = [
-        {"topic": "南投焚化爐修繕抗爭", "desc": "因焚化爐老舊修繕，導致收受能量縮減，引發地方封路抗爭。", "advice": "加強廢棄物分類管理。"},
-        {"topic": "環境部科技監控", "desc": "採用AI與GPS比對，軌跡異常偏差將自動啟動稽查。", "advice": "按申報路線行駛。"},
-        {"topic": "社群檢舉趨勢", "desc": "投訴轉向Dcard/Facebook等社群，稽查頻率增加。", "advice": "落實場內巡檢紀錄。"},
-        {"topic": "代碼誤植連罰", "desc": "查核重點在於營建與事業廢棄物代碼混用，將連續開單。", "advice": "執行內部代碼複核。"}
+        {"topic": "環境部科技監控專案", "desc": "中央擴大採用 AI 影像辨識與清運車軌跡雲端比對，若發現車輛與申報清單不符，系統將即時發信至局端查緝。", "advice": "務必要求廠商嚴格按照申報路線行駛。"},
+        {"topic": "社群媒體即時爆料趨勢", "desc": "異味或揚塵投訴已從傳統電話轉向 Dcard/Facebook 地方社團。這類輿論會迫使環保局採取「從嚴從快」處理模式。", "advice": "落實每日場內巡檢紀錄與噴霧除臭時間表。"}
     ]
     cols = st.columns(2)
     for i, m in enumerate(news):
         with cols[i % 2]:
-            st.markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 180px; margin-bottom:15px;"><b style="color: #4fc3f7;">{m['topic']}</b><p style="color: white;">{m['desc']}</p><p style="color: #81d4fa;"><b>📢 建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 180px;"><b style="color: #4fc3f7;">{m['topic']}</b><p style="color: white;">{m['desc']}</p><p style="color: #81d4fa;"><b>📢 建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
 
 # 4. 數據加載
 @st.cache_data(ttl=5)
@@ -105,6 +97,7 @@ try:
     today = pd.Timestamp(date.today())
     if "mode" not in st.session_state: st.session_state.mode = "home"
     
+    # --- 側邊欄 ---
     st.sidebar.markdown("## 🏠 系統導航")
     if st.sidebar.button("🏠 系統首頁"): st.session_state.mode = "home"; st.rerun()
     if st.sidebar.button("📋 許可證辦理系統"): st.session_state.mode = "management"; st.rerun()
@@ -113,10 +106,20 @@ try:
     st.sidebar.divider()
     if st.sidebar.button("🔄 更新數據"): st.cache_data.clear(); st.rerun()
 
+    # --- 1. 系統首頁 (回歸誇獎版本) ---
     if st.session_state.mode == "home":
         st.title("🚀 大豐環保許可證管理系統")
         st.markdown("---")
-        st.info("請點選左側選單進行操作：\n1. 許可證辦理\n2. 許可下載區\n3. 近期案例")
+        st.markdown("""### 💡 核心功能導引
+        本系統旨在自動化追蹤各場區許可證到期日，並提供 AI 自動比對與辦理流程建議。
+        
+        * **📋 許可證辦理**：根據到期天數自動提醒，一鍵產生附件清單與申報紀錄。
+        * **📁 許可下載區**：串接 Google Drive 雲端檔案，透過 AI OCR 自動核對 PDF 與 Excel 日期是否一致。
+        * **⚖️ 裁處案例**：掌握環境部最新稽查趨勢與社會重大案例（每半日自動更新內容）。
+        
+        ---
+        **📌 當前作業重點：**
+        請管理員優先確認 `剩餘天數 < 90天` 之項目，並至辦理系統提出申請。""")
 
     elif st.session_state.mode == "library":
         st.header("📁 許可下載區 (AI 自動比對)")
@@ -146,20 +149,28 @@ try:
         
         st.title(f"📄 {sel_name}")
         days_left = (target_main.iloc[3] - today).days
+        
+        # --- AI 建議格修正：根據天數提醒 ---
         r1c1, r1c2 = st.columns(2)
         with r1c1:
             if days_left < 90: st.error(f"🚨 【嚴重警告】剩餘 {days_left} 天")
+            elif days_left < 180: st.warning(f"⚠️ 【到期預警】剩餘 {days_left} 天")
             else: st.success(f"✅ 【狀態正常】剩餘 {days_left} 天")
+        
         with r1c2:
-            st.markdown(f'<div style="background-color:#262730;padding:12px;border-radius:5px;border:1px solid #444;height:50px;color:white;">🤖 AI：建議定期檢查附件。</div>', unsafe_allow_html=True)
+            if days_left < 90:
+                advice_txt, bg_color = "🔴 超過展延緩衝期！請立即點選下方項目提出申請。", "#4D0000"
+            elif days_left < 180:
+                advice_txt, bg_color = "🟡 進入 180 天作業期。請開始蒐集附件並準備送件。", "#332B00"
+            else:
+                advice_txt, bg_color = "🟢 距離到期日尚久，請保持每季定期複核即可。", "#0D2D0D"
+            st.markdown(f'<div style="background-color:{bg_color};padding:12px;border-radius:5px;border:1px solid #444;height:52px;line-height:28px;"><b>🤖 AI 行動建議：</b>{advice_txt}</div>', unsafe_allow_html=True)
 
         r2c1, r2c2 = st.columns(2)
         with r2c1: st.info(f"🆔 管制編號：{target_main.iloc[1]}")
-        with r2c2: st.markdown(f'<div style="background-color:#262730;padding:12px;border-radius:5px;border:1px solid #444;height:50px;color:white;">📅 許可到期：<b>{str(target_main.iloc[3])[:10]}</b></div>', unsafe_allow_html=True)
+        with r2c2: st.markdown(f'<div style="background-color:#262730;padding:12px;border-radius:5px;border:1px solid #444;height:52px;line-height:28px;">📅 許可證到期：<b>{str(target_main.iloc[3])[:10]}</b></div>', unsafe_allow_html=True)
 
         st.divider()
-        display_ai_law_wall(sel_type)
-        
         db_info = file_df[file_df.iloc[:, 0] == sel_type]
         options = db_info.iloc[:, 1].dropna().unique().tolist()
         if options:
@@ -186,13 +197,13 @@ try:
                 if st.button("🚀 提出申請", type="primary", use_container_width=True):
                     if user:
                         st.balloons()
-                        st.success(f"✅ 申請成功！通知已發至 andy.chen@df-recycle.com")
+                        st.success(f"✅ 申請成功！通知電子郵件已寄送至：andy.chen@df-recycle.com")
                         st.session_state.selected_actions = set()
                         time.sleep(2); st.rerun()
-                    else: st.warning("⚠️ 請輸入姓名。")
+                    else: st.warning("⚠️ 請輸入申請人姓名。")
 
     st.divider()
-    with st.expander("📊 點此展開：許可證總覽表", expanded=False):
+    with st.expander("📊 許可證總覽表", expanded=False):
         st.dataframe(main_df, use_container_width=True)
 
 except Exception as e:
