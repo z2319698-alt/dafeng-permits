@@ -10,32 +10,33 @@ import requests
 import pytesseract
 from pdf2image import convert_from_bytes
 import re
-from PIL import Image
 
-# --- 1. 背景自動核對 ---
+# --- 1. 背景自動核對 (加入全頁快取功能) ---
 @st.cache_data(ttl=2592000)
-def ai_verify_background(pdf_link, sheet_date):
+def get_pdf_images(pdf_link):
     try:
         file_id = ""
         if '/file/d/' in pdf_link: file_id = pdf_link.split('/file/d/')[1].split('/')[0]
         elif 'id=' in pdf_link: file_id = pdf_link.split('id=')[1].split('&')[0]
-        if not file_id: return False, "連結無效", None
+        if not file_id: return None
         direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
         response = requests.get(direct_url, timeout=20)
-        if response.status_code != 200: return False, "無法讀取", None
-        
-        images = convert_from_bytes(response.content, dpi=100)
-        for img in images:
-            page_text = pytesseract.image_to_string(img.convert('L'), lang='chi_tra+eng')
-            match = re.search(r"(?:至|期|效)[\s]*(\d{2,3}|20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})", page_text)
-            if match:
-                yy, mm, dd = match.groups()
-                year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
-                is_match = (str(sheet_date)[:4] == str(year))
-                return is_match, f"{year}-{mm.zfill(2)}-{dd.zfill(2)}", img
-        return True, "跳過辨識", None
+        if response.status_code != 200: return None
+        return convert_from_bytes(response.content, dpi=100)
     except:
-        return True, "跳過辨識", None
+        return None
+
+def ai_verify_logic(images, sheet_date):
+    if not images: return False, "無法讀取", 0, None
+    for i, img in enumerate(images):
+        page_text = pytesseract.image_to_string(img.convert('L'), lang='chi_tra+eng')
+        match = re.search(r"(?:至|期|效)[\s]*(\d{2,3}|20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})", page_text)
+        if match:
+            yy, mm, dd = match.groups()
+            year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
+            is_match = (str(sheet_date)[:4] == str(year))
+            return is_match, f"{year}-{mm.zfill(2)}-{dd.zfill(2)}", i, img
+    return False, "未偵測到日期", 0, images[0]
 
 # 2. 頁面基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
@@ -99,40 +100,40 @@ try:
     if st.session_state.mode == "home":
         st.title("🚀 大豐環保許可證管理系統")
         st.markdown("---")
-        st.markdown("### 💡 核心功能導引\n* **📋 許可證辦理**：警示到期日並準備附件。\n* **📁 許可下載區**：AI 自動核對，異常可【原地修正】。\n* **⚖️ 裁處案例**：掌握環境部最新稽查趨勢。")
+        st.markdown("### 💡 核心功能導引\n* **📋 許可證辦理**：警示到期日並準備附件。\n* **📁 許可下載區**：AI 自動核對，異常可【翻頁檢視】並修正。\n* **⚖️ 裁處案例**：掌握環境部最新稽查趨勢。")
 
     elif st.session_state.mode == "library":
-        st.header("📁 許可下載區 (AI 比對與原地修正)")
+        st.header("📁 許可下載區 (AI 比對與翻頁修正)")
         for idx, row in main_df.iterrows():
             c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
-            p_name = row.iloc[2]
-            p_date = row.iloc[3]
+            p_name, p_date = row.iloc[2], row.iloc[3]
             c1.markdown(f"📄 **{p_name}**")
             c2.write(f"📅 到期: {str(p_date)[:10]}")
             url = row.get("PDF連結", "")
             
             if pd.notna(url) and str(url).strip().startswith("http"):
-                is_match, pdf_dt, pdf_img = ai_verify_background(str(url).strip(), p_date)
+                pdf_images = get_pdf_images(str(url).strip())
+                is_match, pdf_dt, found_idx, _ = ai_verify_logic(pdf_images, p_date)
                 c3.link_button("📥 下載 PDF", str(url).strip())
                 
                 if not is_match:
-                    with c4:
-                        st.markdown(f'<div style="background-color: #4D0000; color:#ff4d4d; font-weight:bold; border:1px solid #ff4d4d; border-radius:5px; text-align:center; padding:5px;">⚠️ 異常: {pdf_dt}</div>', unsafe_allow_html=True)
+                    with c4: st.markdown(f'<div style="background-color: #4D0000; color:#ff4d4d; font-weight:bold; border:1px solid #ff4d4d; border-radius:5px; text-align:center; padding:5px;">⚠️ 異常: {pdf_dt}</div>', unsafe_allow_html=True)
                     
-                    # --- 原地修正 UI ---
-                    with st.expander(f"🛠️ 修正 {p_name} 的效期"):
-                        col_img, col_fix = st.columns([2, 1])
-                        with col_img:
-                            if pdf_img: st.image(pdf_img, caption="AI 辨識來源頁", use_container_width=True)
-                        with col_fix:
-                            st.write("🔧 **手動校正**")
-                            new_date = st.date_input("正確到期日", value=p_date if pd.notnull(p_date) else date.today(), key=f"fix_{idx}")
-                            if st.button("確認修正", key=f"btn_fix_{idx}", type="primary"):
-                                main_df.loc[idx, main_df.columns[3]] = pd.to_datetime(new_date)
-                                conn.update(worksheet="大豐既有許可證到期提醒", data=main_df)
-                                st.success("已更新！")
-                                st.cache_data.clear()
-                                time.sleep(1); st.rerun()
+                    with st.expander(f"🛠️ 檢視與修正 {p_name}"):
+                        if pdf_images:
+                            col_img, col_fix = st.columns([2, 1])
+                            with col_img:
+                                # 這裡加入分頁器
+                                page_total = len(pdf_images)
+                                sel_page = st.number_input(f"翻頁 (共 {page_total} 頁)", min_value=1, max_value=page_total, value=found_idx+1, key=f"pg_{idx}")
+                                st.image(pdf_images[sel_page-1], use_container_width=True)
+                            with col_fix:
+                                st.write("🔧 **手動校正**")
+                                new_date = st.date_input("正確到期日", value=p_date if pd.notnull(p_date) else date.today(), key=f"fix_{idx}")
+                                if st.button("確認修正", key=f"btn_fix_{idx}", type="primary", use_container_width=True):
+                                    main_df.loc[idx, main_df.columns[3]] = pd.to_datetime(new_date)
+                                    conn.update(worksheet="大豐既有許可證到期提醒", data=main_df)
+                                    st.success("已更新！"); st.cache_data.clear(); time.sleep(1); st.rerun()
                 else:
                     c4.markdown('<div style="background-color: #0D2D0D; color:#4caf50; font-weight:bold; text-align:center; padding:5px; border-radius:5px; border:1px solid #4caf50;">✅ 一致</div>', unsafe_allow_html=True)
             st.divider()
@@ -141,7 +142,7 @@ try:
         display_penalty_cases()
 
     elif st.session_state.mode == "management":
-        # ... (此處維持 02/05 定案版的管理與發信邏輯，完全不動) ...
+        # ... (維持 02/05 定案版的管理與發信邏輯) ...
         st.sidebar.divider()
         sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
