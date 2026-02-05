@@ -8,7 +8,7 @@ import pytesseract
 from pdf2image import convert_from_bytes
 import re
 
-# --- 1. 背景自動核對 (每月一次快取) ---
+# --- 1. 背景自動核對 (每月一次快取，優化年/月判斷) ---
 @st.cache_data(ttl=2592000)
 def ai_verify_background(pdf_link, sheet_date):
     try:
@@ -16,7 +16,7 @@ def ai_verify_background(pdf_link, sheet_date):
         direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
         response = requests.get(direct_url, timeout=10)
         images = convert_from_bytes(response.content, dpi=100)
-        found_dt = ""
+        found_dt = "未偵測日期"
         for img in images:
             text = pytesseract.image_to_string(img, lang='chi_tra')
             match = re.search(r"(\d{2,3}|20\d{2})[\s\.年/-]*(\d{1,2})[\s\.月/-]*(\d{1,2})", text)
@@ -25,9 +25,12 @@ def ai_verify_background(pdf_link, sheet_date):
                 year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
                 found_dt = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
                 break
-        s_clean = str(sheet_date)[:10].replace('-', '')
-        p_clean = found_dt.replace('-', '')
-        return (s_clean == p_clean), found_dt
+        
+        # 抓取年與月進行比對，忽略「日」的誤差以提高準確率
+        s_year, s_month = str(sheet_date)[:4], str(sheet_date)[5:7]
+        p_year, p_month = found_dt[:4], found_dt[5:7]
+        is_match = (s_year == p_year) and (s_month == p_month)
+        return is_match, found_dt
     except:
         return True, "跳過辨識"
 
@@ -130,7 +133,7 @@ try:
         days_left = (expiry_date - today).days
         date_str = str(expiry_date)[:10]
 
-        # --- 第一列：狀態提醒 + AI 建議 ---
+        # --- 第一列：狀態提醒 + AI 建議 (併排) ---
         r1c1, r1c2 = st.columns(2)
         with r1c1:
             if days_left < 90: st.error(f"🚨 【嚴重警告】剩餘 {days_left} 天")
@@ -141,7 +144,7 @@ try:
             advice = "立即準備附件申報！" if days_left < 90 else ("建議開始核對附件。" if days_left < 180 else "在 180 天前開始蒐集即可。")
             st.markdown(f'<div style="background-color:{bg};padding:12px;border-radius:5px;color:#333;border:1px solid #ccc;height:50px;line-height:25px;"><b>🤖 AI 建議：</b>{advice}</div>', unsafe_allow_html=True)
 
-        # --- 第二列：管制編號 + 許可到期日期 ---
+        # --- 第二列：管制編號 + 許可到期日期 (併排) ---
         r2c1, r2c2 = st.columns(2)
         with r2c1:
             st.info(f"🆔 管制編號：{target_main.iloc[1]}")
