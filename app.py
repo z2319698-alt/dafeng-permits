@@ -11,7 +11,7 @@ import pytesseract
 from pdf2image import convert_from_bytes
 import re
 
-# --- 1. 背景自動核對 (翻頁與 OCR 強化版) ---
+# --- 1. 背景自動核對 (翻頁強化版) ---
 @st.cache_data(ttl=2592000)
 def get_pdf_images(pdf_link):
     try:
@@ -22,35 +22,27 @@ def get_pdf_images(pdf_link):
         direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
         response = requests.get(direct_url, timeout=20)
         if response.status_code != 200: return None
-        return convert_from_bytes(response.content, dpi=120) # 提升 DPI 確保辨識率
+        return convert_from_bytes(response.content, dpi=100)
     except:
         return None
 
 def ai_verify_logic(images, sheet_date):
     if not images: return False, "無法讀取", 0, None
-    
-    # 這裡找回 02/05 最完整的關鍵字範圍
     pattern = r"(?:至|期|效|訖|止)[\s:]*(\d{2,3}|20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})"
-    
     for i, img in enumerate(images):
-        # 轉灰階提升辨識效果
         page_text = pytesseract.image_to_string(img.convert('L'), lang='chi_tra+eng')
-        # 去除文字間的雜亂空格以利匹配
         clean_text = re.sub(r'\s+', '', page_text)
-        match = re.search(pattern, page_text) # 原始帶空格匹配
-        if not match: match = re.search(pattern, clean_text) # 二次嘗試去空格匹配
-        
+        match = re.search(pattern, page_text)
+        if not match: match = re.search(pattern, clean_text)
         if match:
             yy, mm, dd = match.groups()
             year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
-            # 轉換為標準日期字串比對
-            pdf_date_str = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
-            is_match = (str(sheet_date)[:10] == pdf_date_str)
-            return is_match, pdf_date_str, i, img
-            
+            pdf_dt = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
+            is_match = (str(sheet_date)[:10] == pdf_dt)
+            return is_match, pdf_dt, i, img
     return False, "未偵測到日期", 0, images[0]
 
-# --- 2. 頁面基礎設定 (黑色背景鎖死) ---
+# 2. 頁面基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 st.markdown("""
     <style>
@@ -112,22 +104,20 @@ try:
     if st.session_state.mode == "home":
         st.title("🚀 大豐環保許可證管理系統")
         st.markdown("---")
-        st.markdown("### 💡 核心功能導引\n* **📋 許可證辦理**：警示到期日並準備附件。\n* **📁 許可下載區**：AI 自動核對，支援【翻頁核對】與【原地修正】。\n* **⚖️ 裁處案例**：掌握環境部最新稽查趨勢。")
+        st.markdown("### 💡 核心功能導引\n* **📋 許可證辦理**：警示到期日。")
 
     elif st.session_state.mode == "library":
-        st.header("📁 許可下載區 (AI 辨識精準版)")
+        st.header("📁 許可下載區 (翻頁核對版)")
         for idx, row in main_df.iterrows():
             c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
             p_name, p_date = row.iloc[2], row.iloc[3]
             c1.markdown(f"📄 **{p_name}**")
             c2.write(f"📅 到期: {str(p_date)[:10]}")
             url = row.get("PDF連結", "")
-            
             if pd.notna(url) and str(url).strip().startswith("http"):
                 pdf_images = get_pdf_images(str(url).strip())
                 is_match, pdf_dt, found_idx, _ = ai_verify_logic(pdf_images, p_date)
                 c3.link_button("📥 下載 PDF", str(url).strip())
-                
                 if not is_match:
                     with c4: st.markdown(f'<div style="background-color: #4D0000; color:#ff4d4d; font-weight:bold; border:1px solid #ff4d4d; border-radius:5px; text-align:center; padding:5px;">⚠️ 異常: {pdf_dt}</div>', unsafe_allow_html=True)
                     with st.expander(f"🛠️ 檢視與修正 {p_name}"):
@@ -151,7 +141,6 @@ try:
         display_penalty_cases()
 
     elif st.session_state.mode == "management":
-        # (這裡回歸 02/05 完整邏輯：發信、附件清單、申請紀錄，絕對不刪)
         st.sidebar.divider()
         sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
@@ -161,6 +150,7 @@ try:
         st.title(f"📄 {sel_name}")
         days_left = (target_main.iloc[3] - today).days
         
+        # --- 這一區塊我之前漏掉了，現在接回來 ---
         r1_c1, r1_c2 = st.columns(2)
         with r1_c1:
             if days_left < 90: st.error(f"🚨 【嚴重警告】剩餘 {days_left} 天")
@@ -171,6 +161,12 @@ try:
             elif days_left < 180: adv_txt, bg_color = "🟡 進入 180 天作業期。請開始蒐集附件。", "#332B00"
             else: adv_txt, bg_color = "🟢 距離到期日尚久，請保持每季定期複核即可。", "#0D2D0D"
             st.markdown(f'<div style="background-color:{bg_color};padding:12px;border-radius:5px;border:1px solid #444;height:52px;line-height:28px;"><b>🤖 AI 建議：</b>{adv_txt}</div>', unsafe_allow_html=True)
+
+        # 🚀 管制編號與許可到期日正式回歸！
+        r2c1, r2c2 = st.columns(2)
+        with r2c1: st.info(f"🆔 管制編號：{target_main.iloc[1]}")
+        with r2c2: st.markdown(f'<div style="background-color:#262730;padding:12px;border-radius:5px;border:1px solid #444;height:52px;line-height:28px;">📅 許可到期：<b>{str(target_main.iloc[3])[:10]}</b></div>', unsafe_allow_html=True)
+        # ------------------------------------
 
         st.divider()
         db_info = file_df[file_df.iloc[:, 0] == sel_type]
@@ -210,10 +206,8 @@ try:
                             with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
                                 server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
                                 server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
-                            st.balloons(); st.success(f"✅ 申請成功！Excel 已更新並寄信予 Andy。")
-                            st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
+                            st.balloons(); st.success(f"✅ 申請成功！"); st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
                         except Exception as err: st.error(f"❌ 流程失敗：{err}")
-                    else: st.warning("⚠️ 請輸入姓名。")
 
     st.divider()
     with st.expander("📊 許可證總覽表", expanded=False):
