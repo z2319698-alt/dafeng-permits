@@ -62,10 +62,10 @@ try:
         my_logs = logs_df[logs_df["許可證名稱"] == permit_name]
         if my_logs.empty: return "未提送"
         last_log = my_logs.iloc[-1]
-        s = str(last_log["狀態"]).strip()
+        s = str(last_log.get("狀態", "未提送")).strip()
         if s == "已核准":
             try:
-                app_d = pd.to_datetime(last_log["核准日期"])
+                app_d = pd.to_datetime(last_log.get("核准日期"))
                 if (today - app_d).days > 5: return "未提送"
             except: pass
         return s
@@ -103,28 +103,29 @@ try:
     dynamic_s = get_dynamic_status(sel_name)
     clean_date = expiry_date[:10] if expiry_date != 'nan' else "未設定"
 
-    # --- 🧠 新增：AI 智慧導航區 (不影響下方功能) ---
+    # --- 🧠 AI 智慧導航區 ---
     st.title(f"📄 {sel_name}")
     
     # AI 時程計算
     expiry_dt_obj = pd.to_datetime(expiry_date, errors='coerce')
-    earliest_submit = expiry_dt_obj - pd.Timedelta(days=180)
-    start_prep = earliest_submit - pd.Timedelta(days=30)
-    
-    with st.expander("🤖 AI 辦理時程與法規建議 (點擊展開)", expanded=True):
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            st.write(f"📅 **法規最早投件日：{earliest_submit.strftime('%Y-%m-%d')}**")
-            if today < start_prep:
-                st.info(f"AI 建議：時間尚早，請於 {start_prep.strftime('%Y-%m-%d')} 再開始準備，避免被退件。")
-            elif start_prep <= today < earliest_submit:
-                st.warning("AI 建議：現在是最佳資料收集期，請準備下方附件。")
-            else:
-                st.error("AI 建議：已符合法規投件時間，請立即辦理。")
-        with c2:
-            st.write("**🔍 該類別最新法規摘要：**")
-            for tip in get_ai_law_tips(sel_type):
-                st.write(f"- {tip}")
+    if not pd.isna(expiry_dt_obj):
+        earliest_submit = expiry_dt_obj - pd.Timedelta(days=180)
+        start_prep = earliest_submit - pd.Timedelta(days=30)
+        
+        with st.expander("🤖 AI 辦理時程與法規建議 (點擊展開)", expanded=True):
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                st.write(f"📅 **法規最早投件日：{earliest_submit.strftime('%Y-%m-%d')}**")
+                if today < start_prep:
+                    st.info(f"AI 建議：請於 {start_prep.strftime('%Y-%m-%d')} 再開始準備資料。")
+                elif start_prep <= today < earliest_submit:
+                    st.warning("AI 建議：現在是最佳資料收集期。")
+                else:
+                    st.error("AI 建議：已符合法規投件時間。")
+            with c2:
+                st.write("**🔍 該類別最新法規摘要：**")
+                for tip in get_ai_law_tips(sel_type):
+                    st.write(f"- {tip}")
 
     status_msg = f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：【{dynamic_s}】"
     if "已過期" in current_status: st.error(status_msg)
@@ -133,7 +134,6 @@ try:
     st.divider()
 
     # --- 🛠️ 原始功能：選擇辦理項目按鈕 ---
-    db_info = file_df[file_df[file_df.iloc[:, 0] == sel_type].index.isin(file_df.index)] # 確保過濾正確
     db_info = file_df[file_df.iloc[:, 0] == sel_type]
     options = db_info.iloc[:, 1].dropna().unique().tolist()
 
@@ -172,14 +172,22 @@ try:
                 if not user_name:
                     st.warning("⚠️ 請填寫姓名！")
                 else:
-                    new_row = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user_name, "申請日期": date.today().strftime("%Y-%m-%d"), "狀態": "已提送需求", "核准日期": ""}])
+                    # 💡 修正關鍵：確保欄位完全對應 logs_df，解決 Item wrong length 錯誤
+                    new_data = {col: "" for col in logs_df.columns} # 先建立全空行
+                    new_data.update({
+                        "許可證名稱": sel_name,
+                        "申請人": user_name,
+                        "申請日期": date.today().strftime("%Y-%m-%d"),
+                        "狀態": "已提送需求"
+                    })
+                    new_row = pd.DataFrame([new_data])
                     updated_logs = pd.concat([logs_df, new_row], ignore_index=True)
                     conn.update(worksheet="申請紀錄", data=updated_logs)
                     
-                    subject = f"【許可證申請】{sel_name}_{user_name}_{apply_date}"
-                    body = f"Andy 您好，\n\n同仁 {user_name} 已於 {apply_date} 提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(current_list)}"
-                    
+                    # 發送郵件邏輯...
                     try:
+                        subject = f"【許可證申請】{sel_name}_{user_name}_{apply_date}"
+                        body = f"Andy 您好，\n\n同仁 {user_name} 已於 {apply_date} 提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(current_list)}"
                         msg = MIMEText(body, 'plain', 'utf-8')
                         msg['Subject'] = Header(subject, 'utf-8')
                         msg['From'] = st.secrets["email"]["sender"]
@@ -190,21 +198,19 @@ try:
                         st.balloons()
                         st.success("✅ 申請成功！紀錄已累加至 Excel 並發信。")
                         st.cache_data.clear()
-                        time.sleep(2)
-                    except Exception as e:
-                        st.error(f"郵件失敗但紀錄已存：{e}")
+                        time.sleep(1)
+                    except:
+                        st.warning("紀錄已存，但郵件發送失敗。")
                     
                     st.session_state.selected_actions = set()
                     st.rerun()
 
-    # --- 📊 原始功能：總表顯示 ---
+    # --- 📊 總表顯示 ---
     st.write("---")
     with st.expander("📊 查看許可證管理總表"):
         final_display = main_df.copy()
-        if '判斷日期' in final_display.columns:
-            final_display = final_display.drop(columns=['判斷日期'])
-        if '最新狀態' in final_display.columns:
-            final_display = final_display.drop(columns=['最新狀態'])
+        for col in ['判斷日期', '最新狀態']:
+            if col in final_display.columns: final_display = final_display.drop(columns=[col])
         st.dataframe(final_display, use_container_width=True, hide_index=True)
 
 except Exception as e:
