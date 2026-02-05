@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 import time
-import smtplib  # 補回關鍵組件
+import smtplib
 from email.mime.text import MIMEText
 from email.header import Header
 from streamlit_gsheets import GSheetsConnection
@@ -10,31 +10,33 @@ import requests
 import pytesseract
 from pdf2image import convert_from_bytes
 import re
+from PIL import Image, ImageDraw
 
-# --- 1. 背景自動核對 (維持不動) ---
+# --- 1. 背景自動核對 (強化版：增加截圖回傳) ---
 @st.cache_data(ttl=2592000)
 def ai_verify_background(pdf_link, sheet_date):
     try:
         file_id = ""
         if '/file/d/' in pdf_link: file_id = pdf_link.split('/file/d/')[1].split('/')[0]
         elif 'id=' in pdf_link: file_id = pdf_link.split('id=')[1].split('&')[0]
-        if not file_id: return False, "連結無效"
+        if not file_id: return False, "連結無效", None
         direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
         response = requests.get(direct_url, timeout=20)
-        if response.status_code != 200: return False, "無法讀取"
-        images = convert_from_bytes(response.content, dpi=150)
+        if response.status_code != 200: return False, "無法讀取", None
+        
+        images = convert_from_bytes(response.content, dpi=100) # 降低 DPI 加速
         all_text = ""
         for img in images:
             page_text = pytesseract.image_to_string(img.convert('L'), lang='chi_tra+eng')
-            all_text += page_text
             match = re.search(r"(?:至|期|效)[\s]*(\d{2,3}|20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})", page_text)
             if match:
                 yy, mm, dd = match.groups()
                 year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
-                return (str(sheet_date)[:4] == str(year)), f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
-        return True, "跳過辨識"
+                is_match = (str(sheet_date)[:4] == str(year))
+                return is_match, f"{year}-{mm.zfill(2)}-{dd.zfill(2)}", img
+        return True, "跳過辨識", None
     except:
-        return True, "跳過辨識"
+        return True, "跳過辨識", None
 
 # 2. 頁面基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
@@ -50,7 +52,7 @@ st.markdown("""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 裁處案例與社會事件 (維持四格，絕不動) ---
+# --- 3. 裁處案例與社會事件 (定案版內容) ---
 def display_penalty_cases():
     st.markdown("## ⚖️ 近一年重大環保事件 (深度解析)")
     cases = [
@@ -88,10 +90,12 @@ try:
     today = pd.Timestamp(date.today())
     if "mode" not in st.session_state: st.session_state.mode = "home"
     
+    # --- 側邊選單 ---
     st.sidebar.markdown("## 🏠 系統導航")
     if st.sidebar.button("🏠 系統首頁"): st.session_state.mode = "home"; st.rerun()
     if st.sidebar.button("📋 許可證辦理系統"): st.session_state.mode = "management"; st.rerun()
     if st.sidebar.button("📁 許可下載區"): st.session_state.mode = "library"; st.rerun()
+    if st.sidebar.button("🛠️ 效期手動校正"): st.session_state.mode = "correction"; st.rerun()
     if st.sidebar.button("⚖️ 近期裁處案例"): st.session_state.mode = "cases"; st.rerun()
     st.sidebar.divider()
     if st.sidebar.button("🔄 更新資料庫"): st.cache_data.clear(); st.rerun()
@@ -99,7 +103,7 @@ try:
     if st.session_state.mode == "home":
         st.title("🚀 大豐環保許可證管理系統")
         st.markdown("---")
-        st.markdown("### 💡 核心功能導引\n* **📋 許可證辦理**：自動警示到期日並準備附件。\n* **📁 許可下載區**：AI OCR 核對 PDF 效期。\n* **⚖️ 裁處案例**：掌握環境部最新稽查趨勢。")
+        st.markdown("### 💡 核心功能導引\n* **📋 許可證辦理**：自動警示到期日並準備附件。\n* **📁 許可下載區**：AI OCR 核對 PDF 效期。\n* **🛠️ 手動校正**：當 AI 辨識異常時，手動覆寫 Excel。\n* **⚖️ 裁處案例**：掌握環境部最新稽查趨勢。")
 
     elif st.session_state.mode == "library":
         st.header("📁 許可下載區 (AI 自動比對)")
@@ -109,18 +113,46 @@ try:
             c2.write(f"📅 到期: {str(row.iloc[3])[:10]}")
             url = row.get("PDF連結", "")
             if pd.notna(url) and str(url).strip().startswith("http"):
-                is_match, pdf_dt = ai_verify_background(str(url).strip(), row.iloc[3])
+                is_match, pdf_dt, pdf_img = ai_verify_background(str(url).strip(), row.iloc[3])
                 c3.link_button("📥 下載 PDF", str(url).strip())
                 if not is_match:
-                    c4.markdown(f'<div style="background-color: #4D0000; color:#ff4d4d; font-weight:bold; border:1px solid #ff4d4d; border-radius:5px; text-align:center; padding:5px;">⚠️ 異常: {pdf_dt}</div>', unsafe_allow_html=True)
+                    with c4:
+                        st.markdown(f'<div style="background-color: #4D0000; color:#ff4d4d; font-weight:bold; border:1px solid #ff4d4d; border-radius:5px; text-align:center; padding:5px;">⚠️ 異常: {pdf_dt}</div>', unsafe_allow_html=True)
+                        if pdf_img:
+                            with st.expander("👁️ 查看 AI 辨識頁"):
+                                st.image(pdf_img, caption=f"AI 在此頁抓取到日期: {pdf_dt}", use_container_width=True)
                 else:
                     c4.markdown('<div style="background-color: #0D2D0D; color:#4caf50; font-weight:bold; text-align:center; padding:5px; border-radius:5px; border:1px solid #4caf50;">✅ 一致</div>', unsafe_allow_html=True)
             st.divider()
+
+    elif st.session_state.mode == "correction":
+        st.header("🛠️ 效期手動校正工具")
+        st.write("當 AI 辨識錯誤或掃描不清楚時，請在此手動修正 Excel 中的到期日。")
+        
+        target_name = st.selectbox("選擇要修正的許可證", main_df.iloc[:, 2].unique())
+        current_data = main_df[main_df.iloc[:, 2] == target_name].iloc[0]
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**目前 Excel 日期：** {str(current_data.iloc[3])[:10]}")
+            new_date = st.date_input("修正後正確日期", value=current_data.iloc[3] if pd.notnull(current_data.iloc[3]) else date.today())
+        
+        if st.button("💾 確認修正並更新 Excel", type="primary"):
+            try:
+                # 找到該行並更新
+                main_df.loc[main_df.iloc[:, 2] == target_name, main_df.columns[3]] = pd.to_datetime(new_date)
+                conn.update(worksheet="大豐既有許可證到期提醒", data=main_df)
+                st.success(f"✅ {target_name} 的日期已成功更新為 {new_date}！")
+                st.cache_data.clear()
+                time.sleep(1); st.rerun()
+            except Exception as e:
+                st.error(f"更新失敗：{e}")
 
     elif st.session_state.mode == "cases":
         display_penalty_cases()
 
     elif st.session_state.mode == "management":
+        # ... (此處維持 02/05 定案版的管理與發信邏輯，完全不動) ...
         st.sidebar.divider()
         sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
@@ -169,35 +201,26 @@ try:
                 for item in sorted(list(atts)):
                     with st.expander(f"📁 附件：{item}", expanded=True): st.file_uploader(f"上傳 - {item}", key=f"up_{item}")
                 
-                # --- 🚀 關鍵：補回昨日 SMTP 發信邏輯 ---
                 if st.button("🚀 提出申請", type="primary", use_container_width=True):
                     if user:
                         try:
-                            # 1. 寫入 Excel
                             history_df = conn.read(worksheet="申請紀錄")
                             new_entry = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user, "申請日期": datetime.now().strftime("%Y-%m-%d"), "狀態": "已提送需求", "核准日期": ""}])
                             updated_history = pd.concat([history_df, new_entry], ignore_index=True)
                             conn.update(worksheet="申請紀錄", data=updated_history)
                             
-                            # 2. SMTP 發信模組 (還原昨日邏輯)
                             subject = f"【許可證申請】{sel_name}_{user}_{datetime.now().strftime('%Y-%m-%d')}"
                             body = f"Andy 您好，\n\n同仁 {user} 已提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(st.session_state.selected_actions)}"
-                            
-                            msg = MIMEText(body, 'plain', 'utf-8')
-                            msg['Subject'] = Header(subject, 'utf-8')
-                            msg['From'] = st.secrets["email"]["sender"]
-                            msg['To'] = st.secrets["email"]["receiver"]
+                            msg = MIMEText(body, 'plain', 'utf-8'); msg['Subject'] = Header(subject, 'utf-8')
+                            msg['From'] = st.secrets["email"]["sender"]; msg['To'] = st.secrets["email"]["receiver"]
                             
                             with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
                                 server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
                                 server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
                             
-                            st.balloons()
-                            st.success(f"✅ 申請成功！Excel 已更新並寄信予 Andy。")
-                            st.session_state.selected_actions = set()
-                            time.sleep(2); st.rerun()
-                        except Exception as err:
-                            st.error(f"❌ 流程失敗：{err}")
+                            st.balloons(); st.success(f"✅ 申請成功！Excel 已更新並寄信予 Andy。")
+                            st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
+                        except Exception as err: st.error(f"❌ 流程失敗：{err}")
                     else: st.warning("⚠️ 請輸入姓名。")
 
     st.divider()
