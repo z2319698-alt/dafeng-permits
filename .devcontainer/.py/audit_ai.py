@@ -9,7 +9,7 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tessera
 
 # --- 2. 設定你的 PDF 資料夾路徑 ---
 # 請將下面括號內的文字改成你電腦裡存放 PDF 的實際路徑，例如 r"C:\Users\Desktop\PDF_Files"
-FOLDER_PATH = r"請填入你的PDF資料夾路徑" 
+FOLDER_PATH = r"https://drive.google.com/drive/folders/1nIAUJVghq3RjBhPUsg1-bPl54cdY7uu-" 
 
 def scan_and_audit():
     print("------------------------------------------")
