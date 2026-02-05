@@ -95,3 +95,11 @@ try:
                         # 寫入申請紀錄
                         new_row = {"許可證名稱": sel_name, "申請人": user_name, "申請日期": date.today().strftime("%Y-%m-%d"), "狀態": "已提送需求"}
                         conn.update(worksheet="申請紀錄", data=pd.concat([logs_df, pd.DataFrame([new_row])], ignore_index=True))
+                        st.success("✅ 申請成功！"); time.sleep(1); st.session_state.selected_actions = set(); st.rerun()
+
+    elif st.session_state.mode == "cases":
+        st.header("⚖️ 近期裁處案例")
+        st.error("**⚠️ 案例：清運業 GPS 異常開罰**\n\n事由：清運路線與申報不符。\n\n💡 避險：出車前確認 GPS 燈號正常。")
+
+except Exception as e:
+    st.error(f"❌ 系統錯誤：{e}")
