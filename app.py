@@ -10,7 +10,7 @@ st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide"
 # 2. 建立連線
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 🧠 AI 智慧與案例模組 ---
+# --- 🧠 AI 智慧與案例模組 (保持不變) ---
 def display_ai_law_wall(category):
     law_db = {
         "廢棄物清理計畫書": [
@@ -32,12 +32,10 @@ def display_ai_law_wall(category):
 
 def display_penalty_cases():
     st.markdown("## ⚖️ 近一年環保裁處與媒體關注焦點")
-    # 1. 高風險紅框案例 (本公司直接相關)
     high_risk_cases = [
         {"type": "廢棄物類", "law": "廢棄物清理法第 31 條", "reason": "未依規定之格式、內容、頻率申報廢棄物產出及清理情形。", "penalty": "罰鍰 NT$ 6,000 ~ 300 萬", "key": "【漏報】廢清書變更後，未於 15 日內完成線上報備。"},
         {"type": "水污染類", "law": "水污染防治法第 14 條", "reason": "排放廢污水不符合放流水標準。", "penalty": "罰鍰 NT$ 6 萬 ~ 2,000 萬", "key": "【超標】雨天逕流廢水未經妥善收集處理即排入溝渠。"}
     ]
-    # 2. 媒體與網路平台觀察 (白底藍字)
     media_cases = [
         {"src": "環保新聞網", "topic": "清運 GPS 軌跡稽查", "desc": "針對「清運車輛停等異常」進行大數據比對，直接擴大稽查至產源工廠。", "advice": "需監督厂商如實報備路線。"},
         {"src": "網路陳情熱點", "topic": "民眾拍照檢舉露天堆置", "desc": "地方社群針對「廢棄物露天堆置未覆蓋」之拍照檢舉件數激增。", "advice": "廠區堆置區務必保持整潔並確實覆蓋。"}
@@ -71,14 +69,14 @@ try:
     logs_df = load_logs()
     today = pd.Timestamp(date.today())
 
-    # --- 📂 側邊選單 (功能重置邏輯) ---
+    # --- 📂 側邊選單 (文字調整) ---
     st.sidebar.markdown("## 🏠 系統導航")
     
-    # 【首頁重置按鈕】
-    if st.sidebar.button("🏠 系統首頁 (重置)", use_container_width=True):
+    # 調整 1：「系統首頁(重置)」改為「系統首頁」
+    if st.sidebar.button("🏠 系統首頁", use_container_width=True):
         st.session_state.mode = "management"
         if "selected_actions" in st.session_state:
-            st.session_state.selected_actions = set() # 徹底清空變更/展延選擇
+            st.session_state.selected_actions = set()
         st.rerun()
 
     if st.sidebar.button("🔄 刷新資料庫", use_container_width=True):
@@ -86,12 +84,15 @@ try:
 
     if "mode" not in st.session_state: st.session_state.mode = "management"
     if st.sidebar.button("📋 許可證辦理系統", use_container_width=True): st.session_state.mode = "management"; st.rerun()
-    if st.sidebar.button("📁 既有文件下載區", use_container_width=True): st.session_state.mode = "library"; st.rerun()
+    
+    # 調整 2：「既有文件下載區」改為「許可下載區」
+    if st.sidebar.button("📁 許可下載區", use_container_width=True): st.session_state.mode = "library"; st.rerun()
+    
     if st.sidebar.button("⚖️ 近期裁處案例", use_container_width=True): st.session_state.mode = "cases"; st.rerun()
 
     # --- 渲染邏輯 ---
     if st.session_state.mode == "library":
-        st.header("📁 既有文件下載區")
+        st.header("📁 許可下載區")
         for idx, row in main_df.iterrows():
             c1, c2, c3 = st.columns([2, 1, 1])
             c1.write(f"📄 **{row.iloc[2]}**")
@@ -122,7 +123,6 @@ try:
 
         display_ai_law_wall(sel_type)
         
-        # 第一步：選擇項目 (附件區關鍵)
         db_info = file_df[file_df.iloc[:, 0] == sel_type]
         options = db_info.iloc[:, 1].dropna().unique().tolist()
         if options:
@@ -136,7 +136,6 @@ try:
                     else: st.session_state.selected_actions.add(option)
                     st.rerun()
 
-            # 第二步：附件上傳區 (確保連動)
             if st.session_state.selected_actions:
                 st.divider()
                 st.markdown("### 📝 第二步：附件上傳區")
