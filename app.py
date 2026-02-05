@@ -28,31 +28,35 @@ def display_ai_law_wall(category):
     cols = st.columns(len(updates))
     for i, item in enumerate(updates):
         with cols[i]:
-            st.markdown(f"""<div style="background-color: #f0f4f8; border-left: 5px solid #2E7D32; padding: 15px; border-radius: 8px; height: 180px;"><span style="background-color: #2E7D32; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">{item['tag']}</span><p style="margin-top: 10px; font-weight: bold;">📅 {item['date']}</p><p style="font-size: 0.85rem;">{item['content']}</p></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style="background-color: #f0f4f8; border-left: 5px solid #2E7D32; padding: 15px; border-radius: 8px; height: 180px;"><span style="background-color: #2E7D32; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">{item['tag']}</span><p style="margin-top: 10px; font-weight: bold; color: #333;">📅 {item['date']}</p><p style="font-size: 0.85rem; color: #333;">{item['content']}</p></div>""", unsafe_allow_html=True)
 
 def display_penalty_cases():
-    st.markdown("## ⚖️ 近一年環保裁處案例重點分享")
-    st.info("AI 彙整：以下紅色標註為本公司高相關類型，其餘案例請同步參閱留意。")
+    st.markdown("## ⚖️ 近一年環保裁處與媒體關注焦點")
+    st.info("AI 彙整：除了法定裁罰案例，亦加入媒體報導之稽查熱點，請廠區加強自主管理。")
     
-    # 高相關案例 (反白提醒)
+    # 1. 高風險紅框案例 (本公司直接相關)
     high_risk_cases = [
         {"type": "廢棄物類", "law": "廢棄物清理法第 31 條", "reason": "未依規定之格式、內容、頻率申報廢棄物產出及清理情形。", "penalty": "罰鍰 NT$ 6,000 ~ 300 萬", "key": "【漏報】廢清書變更後，未於 15 日內完成線上報備。"},
         {"type": "水污染類", "law": "水污染防治法第 14 條", "reason": "排放廢污水不符合放流水標準。", "penalty": "罰鍰 NT$ 6 萬 ~ 2,000 萬", "key": "【超標】雨天逕流廢水未經妥善收集處理即排入溝渠。"}
     ]
     
-    # 一般案例 (不反白)
-    normal_cases = [
-        {"type": "空氣污染類", "law": "空氣污染防制法第 24 條", "reason": "設置或操作許可證內容與實際現況不符。", "penalty": "罰鍰 NT$ 10 萬 ~ 2,000 萬", "key": "防制設備型號與許可證記載不一。"},
-        {"type": "管理類", "law": "環保專責人員管理辦法", "reason": "專責人員離職未於 15 日內遞補或代理。", "penalty": "罰鍰 NT$ 1 萬 ~ 10 萬", "key": "人員異動時未留意法定通報期限。"}
+    # 2. 媒體與網路平台關注熱點 (白底深字)
+    media_cases = [
+        {"src": "環保新聞網", "topic": "科技業、傳統製造業 GPS 軌跡異常稽查", "desc": "環保署運用大數據比對清運車輛軌跡，若發現「停等時間異常」或「繞路」，將直接對產源端進行擴大稽查。", "advice": "確保清運廠商如實走報備路線。"},
+        {"src": "地方社群媒體", "topic": "工廠異味與露天堆置陳情增加", "desc": "民眾透過手機拍照檢舉件數提升 30%，特別是針對「廠區周界異味」與「廢棄物露天堆置未覆蓋」。", "advice": "廠區堆置區需保持整潔並確實覆蓋。"},
+        {"src": "產業論壇熱議", "topic": "廢棄物代碼誤植連帶處分", "desc": "近期多起案例為「代碼申報錯誤」導致與實際廢棄物不符，即使非故意仍遭開罰並要求限期改善。", "advice": "產出端需定期複核廢清書與申報代碼一致性。"}
     ]
 
+    # 渲染高風險
     for case in high_risk_cases:
-        st.markdown(f"""<div style="background-color: #fff5f5; border-left: 5px solid #e53935; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"><b style="color: #e53935; font-size: 1.1rem;">🚨 [高風險] {case['type']} - {case['law']}</b><p style="margin: 8px 0;">事由：{case['reason']}</p><p style="color: #d32f2f;">裁罰：{case['penalty']}</p><p style="background-color: #e8eaf6; padding: 5px; border-radius: 4px;">💡 避險核心：{case['key']}</p></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div style="background-color: #fff5f5; border-left: 5px solid #e53935; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"><b style="color: #e53935; font-size: 1.1rem;">🚨 [高風險] {case['type']} - {case['law']}</b><p style="margin: 8px 0; color: #333;"><b>事由：</b>{case['reason']}</p><p style="color: #d32f2f;"><b>裁罰：</b>{case['penalty']}</p><p style="background-color: #e8eaf6; padding: 5px; border-radius: 4px; color: #1a237e;"><b>💡 避險核心：</b>{case['key']}</p></div>""", unsafe_allow_html=True)
 
-    for case in normal_cases:
-        st.markdown(f"""<div style="background-color: #ffffff; border-left: 5px solid #9e9e9e; padding: 12px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #eeeeee;"><b>[一般] {case['type']} - {case['law']}</b><p style="font-size: 0.9rem; margin: 5px 0;">事由：{case['reason']}</p><p style="font-size: 0.85rem; color: #666;">💡 建議：{case['key']}</p></div>""", unsafe_allow_html=True)
+    # 渲染媒體熱點
+    st.markdown("### 🌐 媒體與社群監控熱點")
+    for m in media_cases:
+        st.markdown(f"""<div style="background-color: #ffffff; border-left: 5px solid #0288d1; padding: 12px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #e1f5fe;"><b style="color: #01579b;">[{m['src']}] {m['topic']}</b><p style="font-size: 0.9rem; margin: 5px 0; color: #333333;">{m['desc']}</p><p style="font-size: 0.85rem; color: #0277bd;"><b>📢 AI 建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
 
-# 3. 數據加載
+# 3. 數據加載 (維持原有穩定邏輯)
 @st.cache_data(ttl=5)
 def load_all_data():
     m_df = conn.read(worksheet="大豐既有許可證到期提醒")
@@ -112,7 +116,7 @@ try:
         if st.button("⬅️ 返回辦理系統"): st.session_state.mode = "management"; st.rerun()
             
     else:
-        # --- 📋 許可證辦理系統 (附件區功能回歸) ---
+        # --- 📋 許可證辦理系統 ---
         st.sidebar.divider()
         sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
