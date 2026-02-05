@@ -1,39 +1,28 @@
-from flask import Flask, render_template, jsonify
+import streamlit as st
 import pandas as pd
 import requests
 import pytesseract
 from pdf2image import convert_from_bytes
 import re
-import os
 
-app = Flask(__name__)
+# --- 1. 基礎設定 ---
+st.set_page_config(page_title="大豐環保證照管理系統", layout="wide")
+st.title("📋 證照到期 AI 自動核對系統")
 
-# --- 1. 這裡放你原本的設定 (不要動到它們) ---
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-SHEET_URL = "你的 Google 試算表連結" # 這裡請填入你原本那串長長的網址
+# Google 試算表 CSV 連結
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=csv&gid=1439172114"
 
-# --- 2. 你原本的的首頁路由 (讀取表格顯示在網頁上) ---
-@app.route('/')
-def index():
-    # 這裡是你原本讀取 CSV 並 render_template('index.html', ...) 的地方
-    df = pd.read_csv(SHEET_URL)
-    data = df.to_dict(orient='records')
-    return render_template('index.html', data=data)
+# Tesseract 路徑 (本地測試用，Streamlit Cloud 部署時需另設)
+# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
-# --- 3. 新增的 AI 核對後端 (這就是我剛才給你的核心代碼) ---
-@app.route('/api/check_date/<int:row_index>')
-def check_date(row_index):
+# --- 2. 核心 AI 核對函數 ---
+def verify_pdf_date(pdf_link, sheet_date):
     try:
-        df = pd.read_csv(SHEET_URL)
-        target_row = df.iloc[row_index]
-        sheet_date = str(target_row['到期日期']).strip()
-        # 注意：請確認你的 Excel 連結欄位名稱，如果是「PDF連結」就改為 ['PDF連結']
-        pdf_link = str(target_row['檔案連結']).strip() 
-        
-        # 轉換連結並抓取
+        # 轉換連結
         file_id = pdf_link.split('/')[-2] if '/file/d/' in pdf_link else pdf_link.split('id=')[-1]
         direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
         
+        # 下載並辨識
         response = requests.get(direct_url)
         pages = convert_from_bytes(response.content, dpi=150)
         
@@ -50,16 +39,37 @@ def check_date(row_index):
                     found_date = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
                     break
         
-        is_match = (found_date.replace('-','') == sheet_date.replace('-',''))
-        return jsonify({
-            "status": "success",
-            "sheet_date": sheet_date,
-            "pdf_date": found_date,
-            "match": is_match
-        })
+        # 比對
+        is_match = (found_date.replace('-','') == str(sheet_date).replace('-',''))
+        return is_match, found_date
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+        return False, f"錯誤: {str(e)}"
 
-# --- 4. 啟動伺服器 ---
-if __name__ == "__main__":
-    app.run(debug=True)
+# --- 3. 讀取並顯示資料 ---
+try:
+    df = pd.read_csv(SHEET_URL)
+    
+    # 建立表格
+    for index, row in df.iterrows():
+        col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
+        
+        with col1:
+            st.write(f"**{row['廠區/名稱']}**")
+        with col2:
+            st.write(f"📅 到期日: {row['到期日期']}")
+        with col3:
+            # 下載/查看按鈕
+            st.link_button("查看 PDF", row['檔案連結'])
+        with col4:
+            # AI 核對按鈕 (每個按鈕需要唯一 key)
+            if st.button(f"🔍 AI 核對", key=f"btn_{index}"):
+                with st.spinner('AI 正在翻閱雲端文件...'):
+                    is_ok, pdf_dt = verify_pdf_date(row['檔案連結'], row['到期日期'])
+                    if is_ok:
+                        st.success(f"✅ 相符 ({pdf_dt})")
+                    else:
+                        st.error(f"❌ 異常 (PDF內容: {pdf_dt})")
+        st.divider()
+
+except Exception as e:
+    st.error(f"無法讀取試算表: {e}")
