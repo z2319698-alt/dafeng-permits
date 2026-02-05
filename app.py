@@ -47,6 +47,8 @@ def load_all_data():
     f_df = conn.read(worksheet="附件資料庫")
     m_df.columns = [str(c).strip().replace(" ", "").replace("\n", "") for c in m_df.columns]
     f_df.columns = [str(c).strip().replace(" ", "").replace("\n", "") for c in f_df.columns]
+    # 強制轉換日期欄位，解決 '<=' 報錯問題
+    m_df.iloc[:, 3] = pd.to_datetime(m_df.iloc[:, 3], errors='coerce')
     return m_df, f_df
 
 @st.cache_data(ttl=5)
@@ -62,10 +64,15 @@ try:
     logs_df = load_logs()
     today = pd.Timestamp(date.today())
 
-    # --- 📢 跑馬燈 ---
-    main_df['判斷日期'] = pd.to_datetime(main_df.iloc[:, 3], errors='coerce')
-    marquee_text = " | ".join([f"⚠️ 提醒：{row.iloc[2]} (到期日: {str(row.iloc[3])[:10]})" for _, row in main_df.iterrows() if pd.notna(row.iloc[3]) and row.iloc[3] <= today + pd.Timedelta(days=180)])
-    if marquee_text:
+    # --- 📢 跑馬燈 (修復日期比較邏輯) ---
+    marquee_list = []
+    for _, row in main_df.iterrows():
+        d = row.iloc[3]
+        if pd.notna(d) and d <= today + pd.Timedelta(days=180):
+            marquee_list.append(f"⚠️ 提醒：{row.iloc[2]} (到期日: {str(d)[:10]})")
+    
+    if marquee_list:
+        marquee_text = " | ".join(marquee_list)
         st.markdown(f'<div style="background-color: #FFF3E0; padding: 10px;"><marquee scrollamount="5" style="color: #E65100; font-weight: bold;">{marquee_text}</marquee></div>', unsafe_allow_html=True)
 
     st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
@@ -100,7 +107,7 @@ try:
         if st.button("⬅️ 返回辦理系統"): st.session_state.mode = "management"; st.rerun()
             
     else:
-        # --- 📋 許可證辦理系統 (回歸附件區) ---
+        # --- 📋 許可證辦理系統 (附件區與 AI 功能全部保留) ---
         st.sidebar.divider()
         sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
@@ -131,22 +138,22 @@ try:
                     else: st.session_state.selected_actions.add(option)
                     st.rerun()
 
-            # 📝 第二步：附件上傳區 (補回功能)
+            # 📝 第二步：附件上傳區
             current_list = st.session_state.selected_actions
             if current_list:
                 st.divider()
                 st.markdown("### 📝 第二步：填寫申請資訊與上傳附件")
                 user_name = st.text_input("👤 申請人姓名", placeholder="請輸入姓名")
                 
-                # 自動抓取附件清單
                 final_attachments = set()
                 for action in current_list:
                     action_row = db_info[db_info.iloc[:, 1] == action]
                     if not action_row.empty:
+                        # 抓取 D 欄以後的所有附件名稱
                         att_list = action_row.iloc[0, 3:].dropna().tolist()
                         for item in att_list: final_attachments.add(str(item).strip())
 
-                # 渲染附件上傳格 (展開器)
+                # 依據選取的項目動態顯示上傳按鈕
                 for item in sorted(list(final_attachments)):
                     with st.expander(f"📁 必備附件：{item}", expanded=True):
                         st.file_uploader(f"請上傳檔案 - {item}", key=f"up_{item}")
@@ -159,7 +166,9 @@ try:
 
         st.write("---")
         with st.expander("📊 查看許可證管理總表"):
-            st.dataframe(main_df.drop(columns=['判斷日期', '最新狀態'], errors='ignore'), use_container_width=True, hide_index=True)
+            # 移除用於計算的臨時欄位
+            display_df = main_df.drop(columns=['判斷日期', '最新狀態'], errors='ignore')
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
