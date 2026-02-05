@@ -1,48 +1,57 @@
-import os
-import re
-import requests
+import pandas as pd
 import pytesseract
-from pdf2image import convert_from_bytes
+from pdf2image import convert_from_path
+import re
+import os
 
-# --- 1. AI 識字大腦設定 ---
-# 這是唯一需要留在電腦的東西
+# --- 設定區 ---
+# 1. 識字大腦路徑
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
-# --- 2. 雲端資料夾設定 (從你的截圖網址抓的) ---
-FOLDER_ID = '1nlAUJVghq3RjBhPUsg1-bPI54cdY7uu-'
+# 2. 你的試算表網址 (轉為 CSV 下載格式)
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1BA427GfGw41UWen083KSWxbdRwbe3a1SEF_H89MyBZE/export?format=csv&gid=1439172114"
 
-def download_and_audit():
-    print("🌐 正在連線到 Google Drive 雲端資料夾...")
-    
-    # 這裡我們模擬瀏覽器去抓你的檔案清單 (這需要你的資料夾有開啟「知道連結的人即可檢視」)
-    # 如果不想設公開，請告訴我，我教你拿一個簡單的 Token
-    url = f"https://drive.google.com/uc?export=download&id=1C72A_8E6jD2G5qWzM8Y5_M8zE6oH1A-A" # 範例 ID
-    
-    print(f"🔍 正在辨識雲端檔案：大豐環保竹北再利用.pdf")
-    
+def start_audit():
+    print("📊 正在讀取 Google 試算表資料...")
     try:
-        # 1. 直接從網路讀取 PDF 到記憶體
-        # 注意：這裡我先用你那張 PDF 的直接下載連結測試
-        file_id = '1C72A_8E6jD2G5qWzM8Y5_M8zE6oH1A-A' # 這是假設的 ID，需對應你的檔案
-        response = requests.get(f'https://drive.google.com/uc?export=download&id={file_id}')
-        
-        # 2. PDF 轉圖片辨識
-        pages = convert_from_bytes(response.content, dpi=200)
+        df = pd.read_csv(SHEET_URL)
+        # 假設你的試算表有一欄叫 '到期日期'，請確認欄位名稱
+        sheet_date = str(df.iloc[0]['到期日期']).strip() 
+        print(f"📌 試算表記錄的日期為: {sheet_date}")
+    except Exception as e:
+        print(f"❌ 讀取試算表失敗: {e}")
+        return
+
+    print("\n🔍 正在辨識本地 PDF 檔案...")
+    # 這裡先抓你資料夾裡的第一個 PDF
+    pdf_files = [f for f in os.listdir('.') if f.lower().endswith('.pdf')]
+    if not pdf_files:
+        print("📁 找不到 PDF 檔案，請確認檔案放在 .py 資料夾內。")
+        return
+
+    target_pdf = pdf_files[0]
+    try:
+        pages = convert_from_path(target_pdf, dpi=200, first_page=1, last_page=1)
         text = pytesseract.image_to_string(pages[0], lang='chi_tra')
         
-        # 3. 找日期
+        # 抓取民國年格式 (例如 115 年 10 月 20 日)
         match = re.search(r"(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日", text)
         if match:
             yy, mm, dd = match.groups()
-            print(f"\n✅ 【辨識成功】")
-            print(f"📄 證件到期日：民國 {yy} 年 {mm} 月 {dd} 日")
-            print(f"📅 西元換算：{int(yy)+1911}-{mm.zfill(2)}-{dd.zfill(2)}")
+            pdf_date = f"{int(yy)+1911}/{mm.zfill(2)}/{dd.zfill(2)}"
+            print(f"📄 PDF 辨識到的日期為: {pdf_date}")
+            
+            # --- 進行核對 ---
+            print("\n--- 核對結果 ---")
+            if pdf_date in sheet_date or sheet_date in pdf_date:
+                print("✅ 【吻合】PDF 日期與試算表一致！")
+            else:
+                print(f"❌ 【不吻合】兩邊日期不同！(PDF: {pdf_date} vs 表格: {sheet_date})")
         else:
-            print("\n⚠️ AI 有看到字，但沒找到日期格式，請確認 PDF 是否清晰。")
+            print("⚠️ 無法在 PDF 中找到日期格式。")
             
     except Exception as e:
-        print(f"\n❌ 連線出錯：{e}")
-        print("提示：請確認 Tesseract 和 Poppler 是否已就緒。")
+        print(f"❌ 辨識過程發生錯誤: {e}")
 
 if __name__ == "__main__":
-    download_and_audit()
+    start_audit()
