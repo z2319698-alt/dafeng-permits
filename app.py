@@ -10,9 +10,9 @@ import requests
 import pytesseract
 from pdf2image import convert_from_bytes
 import re
-from PIL import Image, ImageDraw
+from PIL import Image
 
-# --- 1. 背景自動核對 (強化版：增加截圖回傳) ---
+# --- 1. 背景自動核對 ---
 @st.cache_data(ttl=2592000)
 def ai_verify_background(pdf_link, sheet_date):
     try:
@@ -24,8 +24,7 @@ def ai_verify_background(pdf_link, sheet_date):
         response = requests.get(direct_url, timeout=20)
         if response.status_code != 200: return False, "無法讀取", None
         
-        images = convert_from_bytes(response.content, dpi=100) # 降低 DPI 加速
-        all_text = ""
+        images = convert_from_bytes(response.content, dpi=100)
         for img in images:
             page_text = pytesseract.image_to_string(img.convert('L'), lang='chi_tra+eng')
             match = re.search(r"(?:至|期|效)[\s]*(\d{2,3}|20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})", page_text)
@@ -75,7 +74,6 @@ def display_penalty_cases():
     for i, m in enumerate(news):
         cols[i].markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 160px; margin-bottom: 15px;"><b style="color: #4fc3f7;">{m['topic']}</b><p style="color: white; font-size: 0.85rem;">{m['desc']}</p><p style="color: #81d4fa; font-size: 0.85rem;"><b>📢 建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
 
-# 4. 數據加載
 @st.cache_data(ttl=5)
 def load_all_data():
     m_df = conn.read(worksheet="大豐既有許可證到期提醒")
@@ -90,12 +88,10 @@ try:
     today = pd.Timestamp(date.today())
     if "mode" not in st.session_state: st.session_state.mode = "home"
     
-    # --- 側邊選單 ---
     st.sidebar.markdown("## 🏠 系統導航")
     if st.sidebar.button("🏠 系統首頁"): st.session_state.mode = "home"; st.rerun()
     if st.sidebar.button("📋 許可證辦理系統"): st.session_state.mode = "management"; st.rerun()
     if st.sidebar.button("📁 許可下載區"): st.session_state.mode = "library"; st.rerun()
-    if st.sidebar.button("🛠️ 效期手動校正"): st.session_state.mode = "correction"; st.rerun()
     if st.sidebar.button("⚖️ 近期裁處案例"): st.session_state.mode = "cases"; st.rerun()
     st.sidebar.divider()
     if st.sidebar.button("🔄 更新資料庫"): st.cache_data.clear(); st.rerun()
@@ -103,50 +99,43 @@ try:
     if st.session_state.mode == "home":
         st.title("🚀 大豐環保許可證管理系統")
         st.markdown("---")
-        st.markdown("### 💡 核心功能導引\n* **📋 許可證辦理**：自動警示到期日並準備附件。\n* **📁 許可下載區**：AI OCR 核對 PDF 效期。\n* **🛠️ 手動校正**：當 AI 辨識異常時，手動覆寫 Excel。\n* **⚖️ 裁處案例**：掌握環境部最新稽查趨勢。")
+        st.markdown("### 💡 核心功能導引\n* **📋 許可證辦理**：警示到期日並準備附件。\n* **📁 許可下載區**：AI 自動核對，異常可【原地修正】。\n* **⚖️ 裁處案例**：掌握環境部最新稽查趨勢。")
 
     elif st.session_state.mode == "library":
-        st.header("📁 許可下載區 (AI 自動比對)")
+        st.header("📁 許可下載區 (AI 比對與原地修正)")
         for idx, row in main_df.iterrows():
             c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
-            c1.markdown(f"📄 **{row.iloc[2]}**")
-            c2.write(f"📅 到期: {str(row.iloc[3])[:10]}")
+            p_name = row.iloc[2]
+            p_date = row.iloc[3]
+            c1.markdown(f"📄 **{p_name}**")
+            c2.write(f"📅 到期: {str(p_date)[:10]}")
             url = row.get("PDF連結", "")
+            
             if pd.notna(url) and str(url).strip().startswith("http"):
-                is_match, pdf_dt, pdf_img = ai_verify_background(str(url).strip(), row.iloc[3])
+                is_match, pdf_dt, pdf_img = ai_verify_background(str(url).strip(), p_date)
                 c3.link_button("📥 下載 PDF", str(url).strip())
+                
                 if not is_match:
                     with c4:
                         st.markdown(f'<div style="background-color: #4D0000; color:#ff4d4d; font-weight:bold; border:1px solid #ff4d4d; border-radius:5px; text-align:center; padding:5px;">⚠️ 異常: {pdf_dt}</div>', unsafe_allow_html=True)
-                        if pdf_img:
-                            with st.expander("👁️ 查看 AI 辨識頁"):
-                                st.image(pdf_img, caption=f"AI 在此頁抓取到日期: {pdf_dt}", use_container_width=True)
+                    
+                    # --- 原地修正 UI ---
+                    with st.expander(f"🛠️ 修正 {p_name} 的效期"):
+                        col_img, col_fix = st.columns([2, 1])
+                        with col_img:
+                            if pdf_img: st.image(pdf_img, caption="AI 辨識來源頁", use_container_width=True)
+                        with col_fix:
+                            st.write("🔧 **手動校正**")
+                            new_date = st.date_input("正確到期日", value=p_date if pd.notnull(p_date) else date.today(), key=f"fix_{idx}")
+                            if st.button("確認修正", key=f"btn_fix_{idx}", type="primary"):
+                                main_df.loc[idx, main_df.columns[3]] = pd.to_datetime(new_date)
+                                conn.update(worksheet="大豐既有許可證到期提醒", data=main_df)
+                                st.success("已更新！")
+                                st.cache_data.clear()
+                                time.sleep(1); st.rerun()
                 else:
                     c4.markdown('<div style="background-color: #0D2D0D; color:#4caf50; font-weight:bold; text-align:center; padding:5px; border-radius:5px; border:1px solid #4caf50;">✅ 一致</div>', unsafe_allow_html=True)
             st.divider()
-
-    elif st.session_state.mode == "correction":
-        st.header("🛠️ 效期手動校正工具")
-        st.write("當 AI 辨識錯誤或掃描不清楚時，請在此手動修正 Excel 中的到期日。")
-        
-        target_name = st.selectbox("選擇要修正的許可證", main_df.iloc[:, 2].unique())
-        current_data = main_df[main_df.iloc[:, 2] == target_name].iloc[0]
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"**目前 Excel 日期：** {str(current_data.iloc[3])[:10]}")
-            new_date = st.date_input("修正後正確日期", value=current_data.iloc[3] if pd.notnull(current_data.iloc[3]) else date.today())
-        
-        if st.button("💾 確認修正並更新 Excel", type="primary"):
-            try:
-                # 找到該行並更新
-                main_df.loc[main_df.iloc[:, 2] == target_name, main_df.columns[3]] = pd.to_datetime(new_date)
-                conn.update(worksheet="大豐既有許可證到期提醒", data=main_df)
-                st.success(f"✅ {target_name} 的日期已成功更新為 {new_date}！")
-                st.cache_data.clear()
-                time.sleep(1); st.rerun()
-            except Exception as e:
-                st.error(f"更新失敗：{e}")
 
     elif st.session_state.mode == "cases":
         display_penalty_cases()
