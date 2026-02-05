@@ -6,26 +6,9 @@ import time
 from email.mime.text import MIMEText
 from email.header import Header
 from streamlit_gsheets import GSheetsConnection
-import google.generativeai as genai  # 新增：AI 模組
 
 # 1. 頁面基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
-
-# --- 🤖 AI 功能區塊 (Gemini 設定) ---
-if "gemini_api_key" in st.secrets:
-    genai.configure(api_key=st.secrets["gemini_api_key"])
-    model = genai.GenerativeModel('gemini-1.5-flash')
-else:
-    st.sidebar.warning("🔑 尚未設定 gemini_api_key，AI 功能將受限。")
-
-def get_ai_advice(permit_name):
-    """功能一：法規自動摘要與退件雷點"""
-    prompt = f"你是台灣環保法規專家。請針對『{permit_name}』提供 2026 年辦理的重點法規摘要，以及 3 個最常被退件的原因。請用簡短列點回覆。"
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except:
-        return "無法取得 AI 建議，請確認網路或 API Key。"
 
 # 2. 建立連線
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -39,6 +22,7 @@ def load_main_data():
     file_df.columns = [str(c).strip() for c in file_df.columns]
     return main_df, file_df
 
+# 💡 修正：不要用 ttl=0，改用 ttl=5 讓申請紀錄也能排隊讀取
 @st.cache_data(ttl=5)
 def load_logs():
     try:
@@ -81,20 +65,13 @@ try:
         marquee_text = " | ".join([f"{row['最新狀態']}：{row.iloc[2]} (到期日: {str(row.iloc[3])[:10]})" for _, row in upcoming.iterrows()])
         st.markdown(f'<div style="background-color: #FFF3E0; padding: 10px; border-radius: 5px; border-left: 5px solid #FF9800; overflow: hidden; white-space: nowrap;"><marquee scrollamount="5" style="color: #E65100; font-weight: bold;">{marquee_text}</marquee></div>', unsafe_allow_html=True)
 
-    # --- 功能二：智慧追蹤與異常偵測 (自動觸發) ---
-    overdue_cases = logs_df[
-        (logs_df["狀態"] == "已提送需求") & 
-        (pd.to_datetime(logs_df["申請日期"]) < today - pd.Timedelta(days=14))
-    ]
-    if not overdue_cases.empty:
-        st.error(f"🤖 AI 智慧偵測：有 {len(overdue_cases)} 筆申請已卡關超過 14 天！請檢查辦理進度。")
-
     st.markdown("<h1 style='text-align: center; color: #2E7D32;'>🌱 大豐環保許可證管理系統</h1>", unsafe_allow_html=True)
     st.write("---")
 
     # --- 📂 側邊選單 ---
     st.sidebar.markdown("## 🏠 系統首頁")
     
+    # 💡 修正：增加一個清除快取的按鈕，資料不動時點一下就好
     if st.sidebar.button("🔄 刷新資料庫", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
@@ -115,18 +92,7 @@ try:
     dynamic_s = get_dynamic_status(sel_name)
     clean_date = expiry_date[:10] if expiry_date != 'nan' else "未設定"
 
-    # --- 主畫面顯示 ---
     st.title(f"📄 {sel_name}")
-    
-    # 功能一實作：AI 法規助手界面
-    with st.expander("✨ AI 辦理助手：查看法規摘要與退件防範建議"):
-        if "gemini_api_key" in st.secrets:
-            with st.spinner("AI 分析中..."):
-                advice = get_ai_advice(sel_name)
-                st.info(advice)
-        else:
-            st.write("請先設定 API Key 以啟用此功能。")
-
     status_msg = f"🆔 管制編號：{permit_id}　|　📅 到期日期：{clean_date}　|　📢 目前狀態：【{dynamic_s}】"
     if "已過期" in current_status: st.error(status_msg)
     elif "準備辦理" in current_status: st.warning(status_msg)
@@ -171,6 +137,7 @@ try:
                 if not user_name:
                     st.warning("⚠️ 請填寫姓名！")
                 else:
+                    # 💡 這裡為了防 429，不重複 load_logs_no_cache
                     new_row = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user_name, "申請日期": date.today().strftime("%Y-%m-%d"), "狀態": "已提送需求", "核准日期": ""}])
                     updated_logs = pd.concat([logs_df, new_row], ignore_index=True)
                     conn.update(worksheet="申請紀錄", data=updated_logs)
@@ -188,7 +155,7 @@ try:
                             server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
                         st.balloons()
                         st.success("✅ 申請成功！紀錄已累加至 Excel 並發信。")
-                        st.cache_data.clear()
+                        st.cache_data.clear() # 💡 申請完後清除快取
                         time.sleep(2)
                     except Exception as e:
                         st.error(f"郵件失敗但紀錄已存：{e}")
@@ -197,27 +164,13 @@ try:
                     st.rerun()
 
     st.write("---")
-    # 功能三實作：異常分析與優化報告
     with st.expander("📊 查看許可證管理總表"):
-        # 顯示總表
         final_display = main_df.copy()
         if '判斷日期' in final_display.columns:
             final_display = final_display.drop(columns=['判斷日期'])
         if '最新狀態' in final_display.columns:
             final_display = final_display.drop(columns=['最新狀態'])
         st.dataframe(final_display, use_container_width=True, hide_index=True)
-        
-        # 異常偵測診斷按鈕
-        st.divider()
-        if st.button("🔍 執行 AI 管理診斷報告"):
-            if "gemini_api_key" in st.secrets:
-                expired_info = main_df[main_df['最新狀態'] == "❌ 已過期"].iloc[:, 2].tolist()
-                analysis_prompt = f"目前過期的許可證有：{expired_info}。請針對這些過期項目提供一份流程優化建議，重點在於如何避免未來再次延誤。"
-                with st.spinner("AI 診斷中..."):
-                    report = model.generate_content(analysis_prompt)
-                    st.info(report.text)
-            else:
-                st.warning("請設定 API Key 以使用診斷功能。")
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
