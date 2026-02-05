@@ -22,7 +22,7 @@ def get_pdf_images(pdf_link):
         direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
         response = requests.get(direct_url, timeout=20)
         if response.status_code != 200: return None
-        return convert_from_bytes(response.content, dpi=100)
+        return convert_from_bytes(response.content, dpi=120)
     except:
         return None
 
@@ -56,7 +56,7 @@ st.markdown("""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 裁處案例與社會事件 (定案內容) ---
+# --- 3. 裁處案例與社會事件 ---
 def display_penalty_cases():
     st.markdown("## ⚖️ 近一年重大環保事件 (深度解析)")
     cases = [
@@ -104,10 +104,26 @@ try:
     if st.session_state.mode == "home":
         st.title("🚀 大豐環保許可證管理系統")
         st.markdown("---")
-        st.markdown("### 💡 核心功能導引\n* **📋 許可證辦理**：警示到期日。")
+        # 🛡️ 這裡回來了！最完整的首頁功能引導
+        st.markdown("### 💡 核心功能導引")
+        st.markdown("""
+        * **📋 許可證辦理系統**：
+            * 自動計算許可證到期倒數。
+            * 根據到期天數提供 **AI 建議**（紅色、黃色、綠色狀態）。
+            * 選擇辦理項目後，自動列出所需附件並支援上傳。
+            * **一鍵提出申請**：自動更新 Excel 並寄送通知信件予 Andy。
+        
+        * **📁 許可下載區**：
+            * **AI 自動核對**：系統自動比對 PDF 內容與資料庫效期。
+            * **翻頁核對**：支援多頁 PDF 翻閱查看。
+            * **原地修正**：發現 OCR 辨識異常或資料有誤時，可直接在頁面上修正並同步回傳雲端。
+        
+        * **⚖️ 近期裁處案例**：
+            * 彙整環境部最新稽查熱點與社會重大環保事件，提供預防性建議。
+        """)
 
     elif st.session_state.mode == "library":
-        st.header("📁 許可下載區 (翻頁核對版)")
+        st.header("📁 許可下載區 (支援翻頁與原地修正)")
         for idx, row in main_df.iterrows():
             c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
             p_name, p_date = row.iloc[2], row.iloc[3]
@@ -146,11 +162,8 @@ try:
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
         sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
         target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
-        
         st.title(f"📄 {sel_name}")
         days_left = (target_main.iloc[3] - today).days
-        
-        # --- 這一區塊我之前漏掉了，現在接回來 ---
         r1_c1, r1_c2 = st.columns(2)
         with r1_c1:
             if days_left < 90: st.error(f"🚨 【嚴重警告】剩餘 {days_left} 天")
@@ -161,12 +174,9 @@ try:
             elif days_left < 180: adv_txt, bg_color = "🟡 進入 180 天作業期。請開始蒐集附件。", "#332B00"
             else: adv_txt, bg_color = "🟢 距離到期日尚久，請保持每季定期複核即可。", "#0D2D0D"
             st.markdown(f'<div style="background-color:{bg_color};padding:12px;border-radius:5px;border:1px solid #444;height:52px;line-height:28px;"><b>🤖 AI 建議：</b>{adv_txt}</div>', unsafe_allow_html=True)
-
-        # 🚀 管制編號與許可到期日正式回歸！
         r2c1, r2c2 = st.columns(2)
         with r2c1: st.info(f"🆔 管制編號：{target_main.iloc[1]}")
         with r2c2: st.markdown(f'<div style="background-color:#262730;padding:12px;border-radius:5px;border:1px solid #444;height:52px;line-height:28px;">📅 許可到期：<b>{str(target_main.iloc[3])[:10]}</b></div>', unsafe_allow_html=True)
-        # ------------------------------------
 
         st.divider()
         db_info = file_df[file_df.iloc[:, 0] == sel_type]
@@ -180,7 +190,6 @@ try:
                     if opt in st.session_state.selected_actions: st.session_state.selected_actions.remove(opt)
                     else: st.session_state.selected_actions.add(opt)
                     st.rerun()
-            
             if st.session_state.selected_actions:
                 st.divider(); st.markdown("### 📝 第二步：附件上傳區")
                 user = st.text_input("👤 申請人姓名")
@@ -191,7 +200,6 @@ try:
                         for item in rows.iloc[0, 3:].dropna().tolist(): atts.add(str(item).strip())
                 for item in sorted(list(atts)):
                     with st.expander(f"📁 附件：{item}", expanded=True): st.file_uploader(f"上傳 - {item}", key=f"up_{item}")
-                
                 if st.button("🚀 提出申請", type="primary", use_container_width=True):
                     if user:
                         try:
