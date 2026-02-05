@@ -51,7 +51,7 @@ st.markdown("""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 裁處案例與社會事件 (定案版內容) ---
+# --- 3. 裁處案例與社會事件 ---
 def display_penalty_cases():
     st.markdown("## ⚖️ 近一年重大環保事件 (深度解析)")
     cases = [
@@ -105,8 +105,7 @@ try:
         st.header("📁 許可下載區 (AI 比對與原地修正)")
         for idx, row in main_df.iterrows():
             c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
-            p_name = row.iloc[2]
-            p_date = row.iloc[3]
+            p_name, p_date = row.iloc[2], row.iloc[3]
             c1.markdown(f"📄 **{p_name}**")
             c2.write(f"📅 到期: {str(p_date)[:10]}")
             url = row.get("PDF連結", "")
@@ -114,13 +113,9 @@ try:
             if pd.notna(url) and str(url).strip().startswith("http"):
                 is_match, pdf_dt, pdf_img = ai_verify_background(str(url).strip(), p_date)
                 c3.link_button("📥 下載 PDF", str(url).strip())
-                
                 if not is_match:
-                    with c4:
-                        st.markdown(f'<div style="background-color: #4D0000; color:#ff4d4d; font-weight:bold; border:1px solid #ff4d4d; border-radius:5px; text-align:center; padding:5px;">⚠️ 異常: {pdf_dt}</div>', unsafe_allow_html=True)
-                    
-                    # --- 原地修正 UI ---
-                    with st.expander(f"🛠️ 修正 {p_name} 的效期"):
+                    with c4: st.markdown(f'<div style="background-color: #4D0000; color:#ff4d4d; font-weight:bold; border:1px solid #ff4d4d; border-radius:5px; text-align:center; padding:5px;">⚠️ 異常: {pdf_dt}</div>', unsafe_allow_html=True)
+                    with st.expander(f"🛠️ 修正 {p_name}"):
                         col_img, col_fix = st.columns([2, 1])
                         with col_img:
                             if pdf_img: st.image(pdf_img, caption="AI 辨識來源頁", use_container_width=True)
@@ -130,9 +125,7 @@ try:
                             if st.button("確認修正", key=f"btn_fix_{idx}", type="primary"):
                                 main_df.loc[idx, main_df.columns[3]] = pd.to_datetime(new_date)
                                 conn.update(worksheet="大豐既有許可證到期提醒", data=main_df)
-                                st.success("已更新！")
-                                st.cache_data.clear()
-                                time.sleep(1); st.rerun()
+                                st.success("已更新！"); st.cache_data.clear(); time.sleep(1); st.rerun()
                 else:
                     c4.markdown('<div style="background-color: #0D2D0D; color:#4caf50; font-weight:bold; text-align:center; padding:5px; border-radius:5px; border:1px solid #4caf50;">✅ 一致</div>', unsafe_allow_html=True)
             st.divider()
@@ -141,7 +134,6 @@ try:
         display_penalty_cases()
 
     elif st.session_state.mode == "management":
-        # ... (此處維持 02/05 定案版的管理與發信邏輯，完全不動) ...
         st.sidebar.divider()
         sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
@@ -150,16 +142,14 @@ try:
         
         st.title(f"📄 {sel_name}")
         days_left = (target_main.iloc[3] - today).days
-        
         r1_c1, r1_c2 = st.columns(2)
         with r1_c1:
             if days_left < 90: st.error(f"🚨 【嚴重警告】剩餘 {days_left} 天")
             elif days_left < 180: st.warning(f"⚠️ 【到期預警】剩餘 {days_left} 天")
             else: st.success(f"✅ 【狀態正常】剩餘 {days_left} 天")
         with r1_c2:
-            if days_left < 90: adv_txt, bg_color = "🔴 超過展延緩衝期！請立即提出申請。", "#4D0000"
-            elif days_left < 180: adv_txt, bg_color = "🟡 進入 180 天作業期。請開始蒐集附件。", "#332B00"
-            else: adv_txt, bg_color = "🟢 距離到期日尚久，請保持每季定期複核即可。", "#0D2D0D"
+            adv_txt = "🔴 立即申請" if days_left < 90 else "🟡 準備附件" if days_left < 180 else "🟢 定期複核"
+            bg_color = "#4D0000" if days_left < 90 else "#332B00" if days_left < 180 else "#0D2D0D"
             st.markdown(f'<div style="background-color:{bg_color};padding:12px;border-radius:5px;border:1px solid #444;height:52px;line-height:28px;"><b>🤖 AI 建議：</b>{adv_txt}</div>', unsafe_allow_html=True)
 
         r2c1, r2c2 = st.columns(2)
@@ -202,7 +192,6 @@ try:
                             body = f"Andy 您好，\n\n同仁 {user} 已提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(st.session_state.selected_actions)}"
                             msg = MIMEText(body, 'plain', 'utf-8'); msg['Subject'] = Header(subject, 'utf-8')
                             msg['From'] = st.secrets["email"]["sender"]; msg['To'] = st.secrets["email"]["receiver"]
-                            
                             with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
                                 server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
                                 server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
@@ -210,7 +199,6 @@ try:
                             st.balloons(); st.success(f"✅ 申請成功！Excel 已更新並寄信予 Andy。")
                             st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
                         except Exception as err: st.error(f"❌ 流程失敗：{err}")
-                    else: st.warning("⚠️ 請輸入姓名。")
 
     st.divider()
     with st.expander("📊 許可證總覽表", expanded=False):
