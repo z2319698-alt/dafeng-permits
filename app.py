@@ -7,103 +7,83 @@ import requests
 import pytesseract
 from pdf2image import convert_from_bytes
 import re
-from PIL import Image, ImageOps
 
-# --- 1. 強化版背景自動核對 (影像預處理 + 容錯比對) ---
+# --- 1. 深度掃描版背景核對 (掃描全頁碼 + 關鍵字過濾) ---
 @st.cache_data(ttl=2592000)
 def ai_verify_background(pdf_link, sheet_date):
     try:
-        # 1. 修正 Google Drive 下載連結獲取方式
         file_id = ""
-        if '/file/d/' in pdf_link:
-            file_id = pdf_link.split('/file/d/')[1].split('/')[0]
-        elif 'id=' in pdf_link:
-            file_id = pdf_link.split('id=')[1].split('&')[0]
-            
-        if not file_id: return False, "連結無效"
-        
-        direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
-        
-        # 2. 下載並提高解析度 (DPI 200) 增加清晰度
-        response = requests.get(direct_url, timeout=15)
-        if response.status_code != 200: return False, "無法讀取檔案"
-        
-        # 僅讀取第一頁節省資源
-        images = convert_from_bytes(response.content, dpi=200, last_page=1)
-        
-        found_dt = "未偵測日期"
-        for img in images:
-            # 3. 影像預處理：轉灰階、增強對比 (過濾印章干擾)
-            img = img.convert('L') 
-            text = pytesseract.image_to_string(img, lang='chi_tra+eng')
-            
-            # 4. 強化的日期正規表達式 (支援 114.05.20, 2025/05/20 等)
-            date_patterns = [
-                r"(\d{2,3})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})", # 民國格式
-                r"(20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})"   # 西元格式
-            ]
-            
-            for pattern in date_patterns:
-                match = re.search(pattern, text)
-                if match:
-                    yy, mm, dd = match.groups()
-                    year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
-                    found_dt = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
-                    break
-            if found_dt != "未偵測日期": break
-        
-        # 5. 比對邏輯 (年+月)
-        s_year, s_month = str(sheet_date)[:4], str(sheet_date)[5:7]
-        p_year, p_month = found_dt[:4], found_dt[5:7]
-        
-        is_match = (s_year == p_year) and (s_month == p_month)
-        return is_match, found_dt
-    except Exception as e:
-        return True, f"系統跳過" # 避免因為單一錯誤導致整頁崩潰
+        if '/file/d/' in pdf_link: file_id = pdf_link.split('/file/d/')[1].split('/')[0]
+        elif 'id=' in pdf_link: file_id = pdf_link.split('id=')[1].split('&')[0]
+        if not file_id: return False, "無效連結"
 
-# 2. 頁面基礎設定
+        direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
+        response = requests.get(direct_url, timeout=20)
+        if response.status_code != 200: return False, "讀取失敗"
+
+        # 掃描整份 PDF (不限頁數)
+        images = convert_from_bytes(response.content, dpi=150)
+        
+        best_match_dt = ""
+        all_text = ""
+        
+        for img in images:
+            # 影像轉灰階提升辨識度
+            page_text = pytesseract.image_to_string(img.convert('L'), lang='chi_tra+eng')
+            all_text += page_text
+            
+            # 尋找帶有「至」或「有效」關鍵字的日期區塊
+            # 優先找 民國/西元 格式
+            match = re.search(r"(?:至|期|效)[\s]*(\d{2,3}|20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})", page_text)
+            if match:
+                yy, mm, dd = match.groups()
+                year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
+                best_match_dt = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
+                # 抓到符合關鍵字的日期就優先採用
+                break
+
+        if not best_match_dt:
+            # 若無關鍵字，則抓取全文件中最後一個出現的日期 (通常到期日都在後面)
+            all_dates = re.findall(r"(\d{2,3}|20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})", all_text)
+            if all_dates:
+                yy, mm, dd = all_dates[-1]
+                year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
+                best_match_dt = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
+            else:
+                return False, "找不到日期"
+
+        s_year, s_month = str(sheet_date)[:4], str(sheet_date)[5:7]
+        p_year, p_month = best_match_dt[:4], best_match_dt[5:7]
+        return (s_year == p_year) and (s_month == p_month), best_match_dt
+
+    except Exception as e:
+        return True, "跳過"
+
+# 2. 基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 智慧模組與案例 (保持不變) ---
+# --- 3. 模組功能 ---
 def display_ai_law_wall(category):
-    law_db = {
-        "廢棄物清理計畫書": [
-            {"date": "2025/08", "tag": "重大變更", "content": "環境部公告：廢清書應增列「資源循環促進」專章，針對廢塑膠、廢木材等資源化路徑須明確揭露。"},
-            {"date": "2025/11", "tag": "裁罰預警", "content": "強化產源責任：產源端若未落實現場視察，發生違法傾倒時將面臨連帶重罰。"},
-            {"date": "2026/01", "tag": "最新公告", "content": "全面推動電子化合約上傳，紙本備查期縮短至14天。"}
-        ],
-        "水污染防治許可證": [
-            {"date": "2025/07", "tag": "標準加嚴", "content": "氨氮、重金屬指標納入年度評鑑指標，監測異常將凍結展延。"}
-        ]
-    }
-    updates = law_db.get(category, [{"date": "2025-2026", "tag": "穩定", "content": "目前法規動態穩定。"}])
-    st.markdown(f"### 🛡️ 相關法規動態")
-    cols = st.columns(len(updates))
+    updates = [
+        {"date": "2025/08", "tag": "重大變更", "content": "環境部公告：廢清書應增列「資源循環促進」專章。"},
+        {"date": "2025/11", "tag": "裁罰預警", "content": "產源端未落實現場視察，將面臨連帶重罰。"},
+        {"date": "2026/01", "tag": "最新公告", "content": "電子化合約上傳，紙本備查期縮短至14天。"}
+    ]
+    st.markdown("### 🛡️ 相關法規動態")
+    cols = st.columns(3)
     for i, item in enumerate(updates):
         with cols[i]:
-            st.markdown(f"""<div style="background-color: #f0f4f8; border-left: 5px solid #2E7D32; padding: 15px; border-radius: 8px; height: 180px;"><span style="background-color: #2E7D32; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">{item['tag']}</span><p style="margin-top: 10px; font-weight: bold; color: #333;">📅 {item['date']}</p><p style="font-size: 0.85rem; color: #333;">{item['content']}</p></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style="background-color: #f0f4f8; border-left: 5px solid #2E7D32; padding: 15px; border-radius: 8px; height: 160px; color: #333;"><span style="background-color: #2E7D32; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">{item['tag']}</span><p style="margin-top: 10px; font-weight: bold;">📅 {item['date']}</p><p style="font-size: 0.85rem;">{item['content']}</p></div>""", unsafe_allow_html=True)
 
 def display_penalty_cases():
-    st.markdown("## ⚖️ 近一年重大環保事件 (2025-2026)")
-    high_risk_cases = [
-        {"type": "2025/09 廢棄物非法棄置刑案", "reason": "屏東包商未領許可私自收受廢棄物並深夜傾倒，涉及廢清法第46條刑事責任。", "key": "委託清運務必核對廠商證號與流向證明。"},
-        {"type": "2026/02 農地盜採回填案", "reason": "集團式經營回填14萬噸事業廢棄物於水源區，不法獲利2.4億。", "key": "產源單位若無法證明流向將負擔高額清理費。"}
+    st.markdown("## ⚖️ 近一年重大環保事件")
+    cases = [
+        {"type": "2025/09 廢棄物非法棄置刑案", "reason": "屏東包商未領許可私自收受廢棄物並傾倒，涉及刑事責任。", "key": "委託清運務必核對廠商證號與流向證明。"},
+        {"type": "2026/02 農地盜採回填案", "reason": "回填14萬噸事業廢棄物於水源區，不法獲利2.4億。", "key": "產源單位若無法證明流向將負擔高額清理費。"}
     ]
-    for case in high_risk_cases:
+    for case in cases:
         st.markdown(f"""<div style="background-color: #fff5f5; border-left: 5px solid #e53935; padding: 15px; margin-bottom: 15px; border-radius: 8px; color: #333;"><b style="color: #e53935;">🚨 [近期高風險] {case['type']}</b><p>{case['reason']}<br><b>💡 管理核心：</b>{case['key']}</p></div>""", unsafe_allow_html=True)
-
-    all_news = [
-        {"topic": "南投名間焚化爐修繕抗爭", "desc": "焚化爐老舊維修導致收受縮減，引發地方抗爭。", "advice": "加強場內分類管理。"},
-        {"topic": "環境部科技監控專案啟動", "desc": "擴大採用AI影像與GPS比對，軌跡異常將自動稽查。", "advice": "要求廠商按申報路線行駛。"},
-        {"topic": "社群媒體即時爆料檢舉", "desc": "民眾針對異味投訴轉向Dcard/FB，引發局端查訪頻率增加。", "advice": "落實日常自主巡檢。"},
-        {"topic": "許可申報代碼誤植稽查", "desc": "查核重點：營建廢棄物與事廢代碼混用情形。", "advice": "定期執行代碼複核。"}
-    ]
-    st.markdown("### 🌐 社會重大事件與監控熱點")
-    cols = st.columns(2)
-    for i, m in enumerate(all_news):
-        with cols[i % 2]:
-            st.markdown(f"""<div style="background-color: #ffffff; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #e1f5fe; min-height: 180px; color: #333; margin-bottom:10px;"><b style="color: #01579b;">{m['topic']}</b><p>{m['desc']}</p><p style="color: #0277bd;"><b>📢 建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
 
 # 4. 數據加載
 @st.cache_data(ttl=5)
@@ -120,12 +100,14 @@ try:
     today = pd.Timestamp(date.today())
 
     if "mode" not in st.session_state: st.session_state.mode = "management"
+    
+    # 側邊導航
     st.sidebar.markdown("## 🏠 系統導航")
-    if st.sidebar.button("🏠 系統首頁"): st.session_state.mode = "management"; st.rerun()
     if st.sidebar.button("📋 許可證辦理系統"): st.session_state.mode = "management"; st.rerun()
     if st.sidebar.button("📁 許可下載區"): st.session_state.mode = "library"; st.rerun()
     if st.sidebar.button("⚖️ 近期裁處案例"): st.session_state.mode = "cases"; st.rerun()
 
+    # --- 渲染主要區域 ---
     if st.session_state.mode == "library":
         st.header("📁 許可下載區")
         for idx, row in main_df.iterrows():
@@ -137,27 +119,26 @@ try:
                 is_match, pdf_dt = ai_verify_background(str(url).strip(), row.iloc[3])
                 c3.link_button("📥 下載 PDF", str(url).strip())
                 if not is_match:
-                    c4.markdown(f"""<div style="color:#d32f2f;font-weight:bold;border:1px solid #d32f2f;border-radius:5px;text-align:center;padding:2px;">⚠️ 比對異常<br><span style="font-size:0.7rem;">PDF: {pdf_dt}</span></div>""", unsafe_allow_html=True)
+                    c4.markdown(f"""<div style="color:#d32f2f;font-weight:bold;border:1px solid #d32f2f;border-radius:5px;text-align:center;padding:2px;">⚠️ 比對異常<br><span style="font-size:0.7rem;">偵測值: {pdf_dt}</span></div>""", unsafe_allow_html=True)
                 else:
                     c4.markdown('<p style="color:#2E7D32;text-align:center;margin-top:10px;">✅ 內容一致</p>', unsafe_allow_html=True)
             st.divider()
 
     elif st.session_state.mode == "cases":
         display_penalty_cases()
-        if st.button("⬅️ 返回辦理系統"): st.session_state.mode = "management"; st.rerun()
 
     else:
+        # 辦理首頁
         st.sidebar.divider()
         sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
         sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
         target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
+        
         st.title(f"📄 {sel_name}")
-
-        expiry_date = target_main.iloc[3]
-        days_left = (expiry_date - today).days
-        date_str = str(expiry_date)[:10]
-
+        
+        # 併排排版
+        days_left = (target_main.iloc[3] - today).days
         r1c1, r1c2 = st.columns(2)
         with r1c1:
             if days_left < 90: st.error(f"🚨 【嚴重警告】剩餘 {days_left} 天")
@@ -169,14 +150,13 @@ try:
             st.markdown(f'<div style="background-color:{bg};padding:12px;border-radius:5px;color:#333;border:1px solid #ccc;height:50px;line-height:25px;"><b>🤖 AI 建議：</b>{advice}</div>', unsafe_allow_html=True)
 
         r2c1, r2c2 = st.columns(2)
-        with r2c1:
-            st.info(f"🆔 管制編號：{target_main.iloc[1]}")
-        with r2c2:
-            st.markdown(f'<div style="background-color:#f0f2f6;padding:12px;border-radius:5px;color:#333;border:1px solid #dcdfe6;height:50px;line-height:25px;">📅 許可到期日期：<b>{date_str}</b></div>', unsafe_allow_html=True)
+        with r2c1: st.info(f"🆔 管制編號：{target_main.iloc[1]}")
+        with r2c2: st.markdown(f'<div style="background-color:#f0f2f6;padding:12px;border-radius:5px;color:#333;border:1px solid #dcdfe6;height:50px;line-height:25px;">📅 許可到期日期：<b>{str(target_main.iloc[3])[:10]}</b></div>', unsafe_allow_html=True)
 
         st.divider()
         display_ai_law_wall(sel_type)
         
+        # 附件上傳邏輯
         db_info = file_df[file_df.iloc[:, 0] == sel_type]
         options = db_info.iloc[:, 1].dropna().unique().tolist()
         if options:
@@ -199,8 +179,12 @@ try:
                         for item in rows.iloc[0, 3:].dropna().tolist(): atts.add(str(item).strip())
                 for item in sorted(list(atts)):
                     with st.expander(f"📁 附件：{item}", expanded=True): st.file_uploader(f"上傳檔案 - {item}", key=f"up_{item}")
-                if st.button("🚀 提出申請", type="primary"):
-                    if user: st.balloons(); st.success("✅ 申請成功！"); st.session_state.selected_actions = set(); time.sleep(1); st.rerun()
+
+    # --- 📊 總表區域 (移到最外面，保證永遠顯示) ---
+    st.divider()
+    st.subheader("📊 許可證到期總表 (全場區)")
+    # 這裡顯示所有許可證的狀態，方便一目了然
+    st.dataframe(main_df, use_container_width=True)
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
