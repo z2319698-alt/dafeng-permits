@@ -21,7 +21,6 @@ def ai_verify_background(pdf_link, sheet_date):
         elif 'id=' in pdf_link: file_id = pdf_link.split('id=')[1].split('&')[0]
         if not file_id: return False, "連結無效", None
         direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
-        
         response = requests.get(direct_url, timeout=20)
         if response.status_code != 200: return False, "無法讀取", None
         
@@ -33,8 +32,7 @@ def ai_verify_background(pdf_link, sheet_date):
                 yy, mm, dd = match.groups()
                 year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
                 pdf_dt = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
-                # 比對完整的「年月日」字串
-                is_match = (str(sheet_date)[:10] == pdf_dt)
+                is_match = (str(sheet_date)[:4] == str(year))
                 return is_match, pdf_dt, img
         return True, "跳過辨識", None
     except:
@@ -49,6 +47,7 @@ st.markdown("""
     div[data-testid="stVerticalBlock"] { background-color: transparent !important; opacity: 1 !important; }
     [data-testid="stSidebar"] { background-color: #262730 !important; }
     .stDataFrame { background-color: #FFFFFF; }
+    /* 跑馬燈樣式 */
     @keyframes marquee {
         0% { transform: translateX(100%); }
         100% { transform: translateX(-100%); }
@@ -109,7 +108,7 @@ try:
     main_df, file_df = load_all_data()
     today = pd.Timestamp(date.today())
     
-    # --- 全局跑馬燈 ---
+    # --- 全局跑馬燈勾稽 ---
     expired_items = main_df[main_df.iloc[:, 3] < today].iloc[:, 2].tolist()
     if expired_items:
         st.markdown(f"""<div class="marquee-container"><div class="marquee-text">🚨 警告：以下許可證已逾期，請立即處理：{" / ".join(expired_items)} 🚨</div></div>""", unsafe_allow_html=True)
@@ -158,6 +157,9 @@ try:
                     c4.markdown('<div style="background-color: #0D2D0D; color:#4caf50; font-weight:bold; text-align:center; padding:5px; border-radius:5px; border:1px solid #4caf50;">✅ 一致</div>', unsafe_allow_html=True)
             st.divider()
 
+    elif st.session_state.mode == "cases":
+        display_penalty_cases()
+
     elif st.session_state.mode == "management":
         st.sidebar.divider()
         sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
@@ -166,16 +168,22 @@ try:
         target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
         st.title(f"📄 {sel_name}")
         
+        # --- 狀態顯示邏輯修正 ---
         days_left = (target_main.iloc[3] - today).days
         r1_c1, r1_c2 = st.columns(2)
         with r1_c1:
-            if days_left < 0: st.error(f"❌ 【已經逾期】 過期 {abs(days_left)} 天")
-            elif days_left < 90: st.error(f"🚨 【嚴重警告】 剩餘 {days_left} 天")
-            elif days_left < 180: st.warning(f"⚠️ 【到期預警】 剩餘 {days_left} 天")
-            else: st.success(f"✅ 【狀態有效】 剩餘 {days_left} 天")
+            if days_left < 0:
+                st.error(f"❌ 【已經逾期】 過期 {abs(days_left)} 天")
+            elif days_left < 90:
+                st.error(f"🚨 【嚴重警告】 剩餘 {days_left} 天")
+            elif days_left < 180:
+                st.warning(f"⚠️ 【到期預警】 剩餘 {days_left} 天")
+            else:
+                st.success(f"✅ 【狀態有效】 剩餘 {days_left} 天")
         
         with r1_c2:
-            if days_left < 0: adv_txt, bg_color = "🔴 立即辦理 (逾期中)", "#660000"
+            if days_left < 0:
+                adv_txt, bg_color = "🔴 立即辦理 (逾期中)", "#660000"
             else:
                 adv_txt = "🔴 立即申請" if days_left < 90 else "🟡 準備附件" if days_left < 180 else "🟢 定期複核"
                 bg_color = "#4D0000" if days_left < 90 else "#332B00" if days_left < 180 else "#0D2D0D"
@@ -210,11 +218,12 @@ try:
                 if st.button("🚀 提出申請", type="primary", use_container_width=True):
                     if user:
                         try:
+                            # 更新 Google Sheets
                             history_df = conn.read(worksheet="申請紀錄")
                             new_entry = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user, "申請日期": datetime.now().strftime("%Y-%m-%d"), "狀態": "已提送需求", "核准日期": ""}])
                             updated_history = pd.concat([history_df, new_entry], ignore_index=True)
                             conn.update(worksheet="申請紀錄", data=updated_history)
-                            
+                            # 收信功能 (SMTP)
                             subject = f"【許可證申請】{sel_name}_{user}_{datetime.now().strftime('%Y-%m-%d')}"
                             body = f"Andy 您好，\n\n同仁 {user} 已提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(st.session_state.selected_actions)}"
                             msg = MIMEText(body, 'plain', 'utf-8'); msg['Subject'] = Header(subject, 'utf-8')
@@ -225,16 +234,9 @@ try:
                             st.balloons(); st.success(f"✅ 申請成功並寄信給 Andy！"); st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
                         except Exception as err: st.error(f"❌ 流程失敗：{err}")
 
-    elif st.session_state.mode == "cases":
-        display_penalty_cases()
-
-    # --- 📊 許可證總覽表 (絕對保留並加入狀態判斷) ---
     st.divider()
-    with st.expander("📊 許可證總覽表", expanded=True):
-        display_df = main_df.copy()
-        # 加入有效/無效判斷
-        display_df['狀態判斷'] = display_df.iloc[:, 3].apply(lambda x: "✅ 有效" if pd.notnull(x) and x > today else "❌ 逾期")
-        st.dataframe(display_df, use_container_width=True)
+    with st.expander("📊 許可證總覽表", expanded=False):
+        st.dataframe(main_df, use_container_width=True)
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
