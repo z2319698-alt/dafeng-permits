@@ -61,7 +61,7 @@ st.markdown("""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 裁處案例與社會事件 ---
+# --- 3. 裁處案例功能 ---
 def display_penalty_cases():
     st.markdown("## ⚖️ 近一年重大環保事件 (深度解析)")
     cases = [
@@ -72,13 +72,24 @@ def display_penalty_cases():
     for case in cases:
         st.markdown(f"""<div style="background-color: #2D0D0D; border-left: 5px solid #e53935; padding: 15px; border-radius: 8px; margin-bottom: 15px;"><b style="color: #ff4d4d;">🚨 {case['t']}</b><p style="color: white; margin-top: 5px;">{case['c']}</p></div>""", unsafe_allow_html=True)
 
+    st.markdown("### 🌐 社會重大事件與監控熱點")
+    news = [
+        {"topic": "南投焚化爐修繕抗爭", "desc": "設施修繕導致量縮，居民異味抗爭造成清運受阻。", "advice": "落實巡檢與除臭紀錄。"},
+        {"topic": "環境部科技監控", "desc": "AI 影像與軌跡比對，偏離路線 1 公里即自動觸發稽查。", "advice": "要求廠商按申報路線行駛。"},
+        {"topic": "社群爆料檢舉趨勢", "desc": "Dcard/FB 即時爆料模式增加，引發媒體跟進與頻繁查訪。", "advice": "強化邊界防治並保留作業紀錄。"},
+        {"topic": "許可代碼誤植連罰", "desc": "營建與一般廢棄物代碼混用為近期查核重點。", "advice": "執行內部代碼複核確保一致。"}
+    ]
+    r1c1, r1c2 = st.columns(2); r2c1, r2c2 = st.columns(2)
+    cols = [r1c1, r1c2, r2c1, r2c2]
+    for i, m in enumerate(news):
+        cols[i].markdown(f"""<div style="background-color: #1A1C23; border-left: 5px solid #0288d1; padding: 15px; border-radius: 8px; border: 1px solid #333; min-height: 160px; margin-bottom: 15px;"><b style="color: #4fc3f7;">{m['topic']}</b><p style="color: white; font-size: 0.85rem;">{m['desc']}</p><p style="color: #81d4fa; font-size: 0.85rem;"><b>📢 建議：</b>{m['advice']}</p></div>""", unsafe_allow_html=True)
+
 @st.cache_data(ttl=5)
 def load_all_data():
     m_df = conn.read(worksheet="大豐既有許可證到期提醒")
     f_df = conn.read(worksheet="附件資料庫")
     m_df.columns = [str(c).strip().replace(" ", "").replace("\n", "") for c in m_df.columns]
     f_df.columns = [str(c).strip().replace(" ", "").replace("\n", "") for c in f_df.columns]
-    # 這裡先不做格式化，維持日期物件格式以便後續計算
     m_df.iloc[:, 3] = pd.to_datetime(m_df.iloc[:, 3], errors='coerce')
     return m_df, f_df
 
@@ -86,7 +97,6 @@ try:
     main_df, file_df = load_all_data()
     today = pd.Timestamp(date.today())
     
-    # 預先處理跑馬燈 (檢查已逾期項目)
     expired_items = main_df[main_df.iloc[:, 3] < today].iloc[:, 2].tolist()
     if expired_items:
         st.markdown(f"""<div class="marquee-container"><div class="marquee-text">🚨 警告：以下許可證已逾期，請立即處理：{" / ".join(expired_items)} 🚨</div></div>""", unsafe_allow_html=True)
@@ -112,7 +122,6 @@ try:
             c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
             p_name, p_date = row.iloc[2], row.iloc[3]
             c1.markdown(f"📄 **{p_name}**")
-            # 顯示日期到日
             display_date = str(p_date)[:10] if pd.notnull(p_date) else "無日期"
             c2.write(f"📅 到期: {display_date}")
             url = row.get("PDF連結", "")
@@ -127,7 +136,6 @@ try:
                             if pdf_img: st.image(pdf_img, caption="AI 辨識來源頁", use_container_width=True)
                         with col_fix:
                             st.write("🔧 **手動校正**")
-                            # 修正點：轉化為日期格式給 date_input
                             current_val = p_date.date() if pd.notnull(p_date) else date.today()
                             new_date = st.date_input("正確到期日", value=current_val, key=f"fix_{idx}")
                             if st.button("確認修正", key=f"btn_fix_{idx}", type="primary", use_container_width=True):
@@ -208,15 +216,10 @@ try:
 
     st.divider()
     with st.expander("📊 許可證總覽表", expanded=True):
-        # 複製原始資料以維持 Excel 呈現風格
         display_df = main_df.copy()
-        
-        # 格式化日期：確保第四欄只顯示到日 (YYYY-MM-DD)，且處理空值避免報錯
         display_df.iloc[:, 3] = display_df.iloc[:, 3].apply(
             lambda x: x.strftime('%Y-%m-%d') if pd.notnull(x) and hasattr(x, 'strftime') else ""
         )
-        
-        # 直接顯示，完全遵循 Excel 原始欄位順序與內容
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 except Exception as e:
