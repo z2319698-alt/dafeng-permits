@@ -216,9 +216,11 @@ try:
                         except Exception as err: st.error(f"❌ 流程失敗：{err}")
 
     st.divider()
-    # 調整為預設關閉 (expanded=False) 且直接呈現原始 main_df
-    with st.expander("📊 許可證總覽表", expanded=False):
-        st.dataframe(main_df, use_container_width=True)
+    with st.expander("📊 許可證總覽表", expanded=True):
+        # --- 狀態自動勾稽修正點 ---
+        display_df = main_df.copy()
+        display_df['目前狀態'] = display_df.iloc[:, 3].apply(lambda x: "✅ 有效" if pd.notnull(x) and x > today else "❌ 逾期")
+        st.dataframe(display_df, use_container_width=True)
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
