@@ -9,9 +9,14 @@ from streamlit_gsheets import GSheetsConnection
 
 # --- 關鍵：調用獨立模組 ---
 # 這樣以後改 AI 邏輯只動 ai_engine.py，改案例只動 ui_components.py
+import sys
+import os
+
+# 強制將當前目錄加入 Python 搜尋路徑
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from utils.ai_engine import ai_verify_background
 from utils.ui_components import display_penalty_cases
-
 # 1. 頁面基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 st.markdown("""
@@ -152,3 +157,4 @@ try:
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
+
