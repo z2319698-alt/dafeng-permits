@@ -12,7 +12,7 @@ from pdf2image import convert_from_bytes
 import re
 from PIL import Image
 
-# --- 1. 背景自動核對 (精確度強化版) ---
+# --- 1. 背景自動核對 ---
 @st.cache_data(ttl=2592000)
 def ai_verify_background(pdf_link, sheet_date):
     try:
@@ -27,17 +27,13 @@ def ai_verify_background(pdf_link, sheet_date):
         images = convert_from_bytes(response.content, dpi=100)
         for img in images:
             page_text = pytesseract.image_to_string(img.convert('L'), lang='chi_tra+eng')
-            match = re.search(r"(?:至|期|效|限)[\s]*(\d{2,3}|20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})", page_text)
+            match = re.search(r"(?:至|期|效)[\s]*(\d{2,3}|20\d{2})[\s\.年/-]+(\d{1,2})[\s\.月/-]+(\d{1,2})", page_text)
             if match:
                 yy, mm, dd = match.groups()
                 year = int(yy) + 1911 if int(yy) < 1000 else int(yy)
-                pdf_dt_str = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
-                
-                # 嚴謹年月日比對
-                sheet_dt_str = pd.to_datetime(sheet_date).strftime('%Y-%m-%d') if pd.notnull(sheet_date) else ""
-                is_match = (pdf_dt_str == sheet_dt_str)
-                return is_match, pdf_dt_str, img
-                
+                pdf_dt = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
+                is_match = (str(sheet_date)[:4] == str(year))
+                return is_match, pdf_dt, img
         return True, "跳過辨識", None
     except:
         return True, "跳過辨識", None
@@ -101,7 +97,7 @@ try:
     main_df, file_df = load_all_data()
     today = pd.Timestamp(date.today())
     
-    # --- 跑馬燈勾稽邏輯 (保留核對但不在 DataFrame 顯示) ---
+    # --- 全局跑馬燈勾稽 ---
     expired_items = main_df[main_df.iloc[:, 3] < today].iloc[:, 2].tolist()
     if expired_items:
         st.markdown(f"""<div class="marquee-container"><div class="marquee-text">🚨 警告：以下許可證已逾期，請立即處理：{" / ".join(expired_items)} 🚨</div></div>""", unsafe_allow_html=True)
@@ -220,7 +216,7 @@ try:
                         except Exception as err: st.error(f"❌ 流程失敗：{err}")
 
     st.divider()
-    # --- 最終修正點：總覽表縮小 (expanded=False) 且僅呈現 Sheets 的原始欄位 ---
+    # 調整為預設關閉 (expanded=False) 且直接呈現原始 main_df
     with st.expander("📊 許可證總覽表", expanded=False):
         st.dataframe(main_df, use_container_width=True)
 
