@@ -47,26 +47,15 @@ st.markdown("""
     div[data-testid="stVerticalBlock"] { background-color: transparent !important; opacity: 1 !important; }
     [data-testid="stSidebar"] { background-color: #262730 !important; }
     .stDataFrame { background-color: #FFFFFF; }
-    /* 跑馬燈樣式 */
     @keyframes marquee {
         0% { transform: translateX(100%); }
         100% { transform: translateX(-100%); }
     }
     .marquee-container {
-        overflow: hidden;
-        white-space: nowrap;
-        background: #4D0000;
-        color: #FF4D4D;
-        padding: 10px 0;
-        font-weight: bold;
-        border: 1px solid #FF4D4D;
-        border-radius: 5px;
-        margin-bottom: 20px;
+        overflow: hidden; white-space: nowrap; background: #4D0000; color: #FF4D4D;
+        padding: 10px 0; font-weight: bold; border: 1px solid #FF4D4D; border-radius: 5px; margin-bottom: 20px;
     }
-    .marquee-text {
-        display: inline-block;
-        animation: marquee 15s linear infinite;
-    }
+    .marquee-text { display: inline-block; animation: marquee 15s linear infinite; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -136,7 +125,6 @@ try:
             c1.markdown(f"📄 **{p_name}**")
             c2.write(f"📅 到期: {str(p_date)[:10]}")
             url = row.get("PDF連結", "")
-            
             if pd.notna(url) and str(url).strip().startswith("http"):
                 is_match, pdf_dt, pdf_img = ai_verify_background(str(url).strip(), p_date)
                 c3.link_button("📥 下載 PDF", str(url).strip())
@@ -144,7 +132,7 @@ try:
                     with c4: st.markdown(f'<div style="background-color: #4D0000; color:#ff4d4d; font-weight:bold; border:1px solid #ff4d4d; border-radius:5px; text-align:center; padding:5px;">⚠️ 異常: {pdf_dt}</div>', unsafe_allow_html=True)
                     with st.expander(f"🛠️ 修正 {p_name}"):
                         col_img, col_fix = st.columns([2, 1])
-                        with col_img:
+                        with col_img: 
                             if pdf_img: st.image(pdf_img, caption="AI 辨識來源頁", use_container_width=True)
                         with col_fix:
                             st.write("🔧 **手動校正**")
@@ -168,22 +156,16 @@ try:
         target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
         st.title(f"📄 {sel_name}")
         
-        # --- 狀態顯示邏輯修正 ---
         days_left = (target_main.iloc[3] - today).days
         r1_c1, r1_c2 = st.columns(2)
         with r1_c1:
-            if days_left < 0:
-                st.error(f"❌ 【已經逾期】 過期 {abs(days_left)} 天")
-            elif days_left < 90:
-                st.error(f"🚨 【嚴重警告】 剩餘 {days_left} 天")
-            elif days_left < 180:
-                st.warning(f"⚠️ 【到期預警】 剩餘 {days_left} 天")
-            else:
-                st.success(f"✅ 【狀態有效】 剩餘 {days_left} 天")
+            if days_left < 0: st.error(f"❌ 【已經逾期】 過期 {abs(days_left)} 天")
+            elif days_left < 90: st.error(f"🚨 【嚴重警告】 剩餘 {days_left} 天")
+            elif days_left < 180: st.warning(f"⚠️ 【到期預警】 剩餘 {days_left} 天")
+            else: st.success(f"✅ 【狀態有效】 剩餘 {days_left} 天")
         
         with r1_c2:
-            if days_left < 0:
-                adv_txt, bg_color = "🔴 立即辦理 (逾期中)", "#660000"
+            if days_left < 0: adv_txt, bg_color = "🔴 立即辦理 (逾期中)", "#660000"
             else:
                 adv_txt = "🔴 立即申請" if days_left < 90 else "🟡 準備附件" if days_left < 180 else "🟢 定期複核"
                 bg_color = "#4D0000" if days_left < 90 else "#332B00" if days_left < 180 else "#0D2D0D"
@@ -218,12 +200,11 @@ try:
                 if st.button("🚀 提出申請", type="primary", use_container_width=True):
                     if user:
                         try:
-                            # 更新 Google Sheets
                             history_df = conn.read(worksheet="申請紀錄")
                             new_entry = pd.DataFrame([{"許可證名稱": sel_name, "申請人": user, "申請日期": datetime.now().strftime("%Y-%m-%d"), "狀態": "已提送需求", "核准日期": ""}])
                             updated_history = pd.concat([history_df, new_entry], ignore_index=True)
                             conn.update(worksheet="申請紀錄", data=updated_history)
-                            # 收信功能 (SMTP)
+                            
                             subject = f"【許可證申請】{sel_name}_{user}_{datetime.now().strftime('%Y-%m-%d')}"
                             body = f"Andy 您好，\n\n同仁 {user} 已提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(st.session_state.selected_actions)}"
                             msg = MIMEText(body, 'plain', 'utf-8'); msg['Subject'] = Header(subject, 'utf-8')
@@ -235,8 +216,11 @@ try:
                         except Exception as err: st.error(f"❌ 流程失敗：{err}")
 
     st.divider()
-    with st.expander("📊 許可證總覽表", expanded=False):
-        st.dataframe(main_df, use_container_width=True)
+    with st.expander("📊 許可證總覽表", expanded=True):
+        # --- 狀態自動勾稽修正點 ---
+        display_df = main_df.copy()
+        display_df['目前狀態'] = display_df.iloc[:, 3].apply(lambda x: "✅ 有效" if pd.notnull(x) and x > today else "❌ 逾期")
+        st.dataframe(display_df, use_container_width=True)
 
 except Exception as e:
     st.error(f"❌ 系統錯誤：{e}")
