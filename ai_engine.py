@@ -1,5 +1,4 @@
 import streamlit as st
-import pandas as pd
 import pytesseract
 import requests
 import re
@@ -7,7 +6,6 @@ from pdf2image import convert_from_bytes
 
 @st.cache_data(ttl=2592000)
 def ai_verify_background(pdf_link, sheet_date):
-    """專門處理 AI 辨識邏輯。與主程式隔離，修改此處不會影響 UI 或寄信功能。"""
     try:
         file_id = ""
         if '/file/d/' in pdf_link: file_id = pdf_link.split('/file/d/')[1].split('/')[0]
