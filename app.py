@@ -47,6 +47,26 @@ st.markdown("""
     div[data-testid="stVerticalBlock"] { background-color: transparent !important; opacity: 1 !important; }
     [data-testid="stSidebar"] { background-color: #262730 !important; }
     .stDataFrame { background-color: #FFFFFF; }
+    /* 跑馬燈樣式 */
+    @keyframes marquee {
+        0% { transform: translateX(100%); }
+        100% { transform: translateX(-100%); }
+    }
+    .marquee-container {
+        overflow: hidden;
+        white-space: nowrap;
+        background: #4D0000;
+        color: #FF4D4D;
+        padding: 10px 0;
+        font-weight: bold;
+        border: 1px solid #FF4D4D;
+        border-radius: 5px;
+        margin-bottom: 20px;
+    }
+    .marquee-text {
+        display: inline-block;
+        animation: marquee 15s linear infinite;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -87,6 +107,12 @@ def load_all_data():
 try:
     main_df, file_df = load_all_data()
     today = pd.Timestamp(date.today())
+    
+    # --- 全局跑馬燈勾稽 ---
+    expired_items = main_df[main_df.iloc[:, 3] < today].iloc[:, 2].tolist()
+    if expired_items:
+        st.markdown(f"""<div class="marquee-container"><div class="marquee-text">🚨 警告：以下許可證已逾期，請立即處理：{" / ".join(expired_items)} 🚨</div></div>""", unsafe_allow_html=True)
+
     if "mode" not in st.session_state: st.session_state.mode = "home"
     
     st.sidebar.markdown("## 🏠 系統導航")
@@ -141,20 +167,33 @@ try:
         sel_name = st.sidebar.radio("2. 選擇許可證", sub_main.iloc[:, 2].dropna().unique())
         target_main = sub_main[sub_main.iloc[:, 2] == sel_name].iloc[0]
         st.title(f"📄 {sel_name}")
+        
+        # --- 狀態顯示邏輯修正 ---
         days_left = (target_main.iloc[3] - today).days
         r1_c1, r1_c2 = st.columns(2)
         with r1_c1:
-            if days_left < 90: st.error(f"🚨 【嚴重警告】剩餘 {days_left} 天")
-            elif days_left < 180: st.warning(f"⚠️ 【到期預警】剩餘 {days_left} 天")
-            else: st.success(f"✅ 【狀態正常】剩餘 {days_left} 天")
+            if days_left < 0:
+                st.error(f"❌ 【已經逾期】 過期 {abs(days_left)} 天")
+            elif days_left < 90:
+                st.error(f"🚨 【嚴重警告】 剩餘 {days_left} 天")
+            elif days_left < 180:
+                st.warning(f"⚠️ 【到期預警】 剩餘 {days_left} 天")
+            else:
+                st.success(f"✅ 【狀態有效】 剩餘 {days_left} 天")
+        
         with r1_c2:
-            adv_txt = "🔴 立即申請" if days_left < 90 else "🟡 準備附件" if days_left < 180 else "🟢 定期複核"
-            bg_color = "#4D0000" if days_left < 90 else "#332B00" if days_left < 180 else "#0D2D0D"
+            if days_left < 0:
+                adv_txt, bg_color = "🔴 立即辦理 (逾期中)", "#660000"
+            else:
+                adv_txt = "🔴 立即申請" if days_left < 90 else "🟡 準備附件" if days_left < 180 else "🟢 定期複核"
+                bg_color = "#4D0000" if days_left < 90 else "#332B00" if days_left < 180 else "#0D2D0D"
             st.markdown(f'<div style="background-color:{bg_color};padding:12px;border-radius:5px;border:1px solid #444;height:52px;line-height:28px;"><b>🤖 AI 建議：</b>{adv_txt}</div>', unsafe_allow_html=True)
+        
         r2c1, r2c2 = st.columns(2)
         with r2c1: st.info(f"🆔 管制編號：{target_main.iloc[1]}")
         with r2c2: st.markdown(f'<div style="background-color:#262730;padding:12px;border-radius:5px;border:1px solid #444;height:52px;line-height:28px;">📅 許可到期：<b>{str(target_main.iloc[3])[:10]}</b></div>', unsafe_allow_html=True)
         st.divider()
+        
         db_info = file_df[file_df.iloc[:, 0] == sel_type]
         options = db_info.iloc[:, 1].dropna().unique().tolist()
         if options:
