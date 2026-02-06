@@ -78,7 +78,7 @@ def load_all_data():
     f_df = conn.read(worksheet="附件資料庫")
     m_df.columns = [str(c).strip().replace(" ", "").replace("\n", "") for c in m_df.columns]
     f_df.columns = [str(c).strip().replace(" ", "").replace("\n", "") for c in f_df.columns]
-    # 強制日期格式轉化，不留時間點
+    # 這裡先不做格式化，維持日期物件格式以便後續計算
     m_df.iloc[:, 3] = pd.to_datetime(m_df.iloc[:, 3], errors='coerce')
     return m_df, f_df
 
@@ -86,7 +86,7 @@ try:
     main_df, file_df = load_all_data()
     today = pd.Timestamp(date.today())
     
-    # 預先處理跑馬燈
+    # 預先處理跑馬燈 (檢查已逾期項目)
     expired_items = main_df[main_df.iloc[:, 3] < today].iloc[:, 2].tolist()
     if expired_items:
         st.markdown(f"""<div class="marquee-container"><div class="marquee-text">🚨 警告：以下許可證已逾期，請立即處理：{" / ".join(expired_items)} 🚨</div></div>""", unsafe_allow_html=True)
@@ -112,7 +112,9 @@ try:
             c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
             p_name, p_date = row.iloc[2], row.iloc[3]
             c1.markdown(f"📄 **{p_name}**")
-            c2.write(f"📅 到期: {str(p_date)[:10]}")
+            # 顯示日期到日
+            display_date = str(p_date)[:10] if pd.notnull(p_date) else "無日期"
+            c2.write(f"📅 到期: {display_date}")
             url = row.get("PDF連結", "")
             if pd.notna(url) and str(url).strip().startswith("http"):
                 is_match, pdf_dt, pdf_img = ai_verify_background(str(url).strip(), p_date)
@@ -125,7 +127,9 @@ try:
                             if pdf_img: st.image(pdf_img, caption="AI 辨識來源頁", use_container_width=True)
                         with col_fix:
                             st.write("🔧 **手動校正**")
-                            new_date = st.date_input("正確到期日", value=p_date if pd.notnull(p_date) else date.today(), key=f"fix_{idx}")
+                            # 修正點：轉化為日期格式給 date_input
+                            current_val = p_date.date() if pd.notnull(p_date) else date.today()
+                            new_date = st.date_input("正確到期日", value=current_val, key=f"fix_{idx}")
                             if st.button("確認修正", key=f"btn_fix_{idx}", type="primary", use_container_width=True):
                                 main_df.loc[idx, main_df.columns[3]] = pd.to_datetime(new_date)
                                 conn.update(worksheet="大豐既有許可證到期提醒", data=main_df)
@@ -206,8 +210,12 @@ try:
     with st.expander("📊 許可證總覽表", expanded=True):
         # 複製原始資料以維持 Excel 呈現風格
         display_df = main_df.copy()
-        # 格式化日期欄位，僅保留 YYYY-MM-DD
-        display_df.iloc[:, 3] = display_df.iloc[:, 3].dt.strftime('%Y-%m-%d')
+        
+        # 格式化日期：確保第四欄只顯示到日 (YYYY-MM-DD)，且處理空值避免報錯
+        display_df.iloc[:, 3] = display_df.iloc[:, 3].apply(
+            lambda x: x.strftime('%Y-%m-%d') if pd.notnull(x) and hasattr(x, 'strftime') else ""
+        )
+        
         # 直接顯示，完全遵循 Excel 原始欄位順序與內容
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
