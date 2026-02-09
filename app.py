@@ -12,7 +12,7 @@ try:
     from ai_engine import ai_verify_background
     from ui_components import display_penalty_cases
 except ImportError:
-    st.error("❌ 找不到核心零件，請確認 ai_engine.py 與 ui_components.py 是否已在根目錄。")
+    st.error("❌ 找不到核心零件，請確認 ai_engine.py 與 ui_components.py 是否已移至根目錄。")
     st.stop()
 
 # 1. 頁面基礎設定
@@ -74,31 +74,44 @@ try:
         st.markdown("### 💡 核心功能導引\n* **📋 許可證辦理**：警示到期日並準備附件。\n* **📁 許可下載區**：AI 自動核對，異常可【原地修正】。\n* **⚖️ 裁處案例**：掌握環境部最新稽查趨勢。")
 
     elif st.session_state.mode == "cases":
-        display_penalty_cases() # 呼叫 ui_components.py
+        display_penalty_cases() 
 
     elif st.session_state.mode == "library":
-        st.header("📁 許可下載區 (AI 比對與原地修正)")
-        for idx, row in main_df.iterrows():
-            c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
-            p_name, p_date, url = row.iloc[2], row.iloc[3], row.get("PDF連結", "")
-            c1.markdown(f"📄 **{p_name}**")
-            c2.write(f"📅 到期: {str(p_date)[:10] if pd.notnull(p_date) else '無'}")
-            if pd.notna(url) and str(url).strip().startswith("http"):
-                is_match, pdf_dt, pdf_img = ai_verify_background(str(url).strip(), p_date)
-                c3.link_button("📥 下載 PDF", str(url).strip())
-                if not is_match:
-                    with c4: st.markdown(f'<div style="background-color: #4D0000; color:#ff4d4d; font-weight:bold; border:1px solid #ff4d4d; border-radius:5px; text-align:center; padding:5px;">⚠️ 異常: {pdf_dt}</div>', unsafe_allow_html=True)
-                    with st.expander(f"🛠️ 修正 {p_name}"):
-                        col_img, col_fix = st.columns([2, 1])
-                        if pdf_img: col_img.image(pdf_img, use_container_width=True)
-                        new_date = col_fix.date_input("正確到期日", value=p_date.date() if pd.notnull(p_date) else date.today(), key=f"fix_date_{idx}")
-                        if col_fix.button("確認修正", key=f"btn_confirm_{idx}", type="primary", use_container_width=True):
-                            main_df.loc[idx, main_df.columns[3]] = pd.to_datetime(new_date)
-                            conn.update(worksheet="大豐既有許可證到期提醒", data=main_df)
-                            st.success("已更新！"); st.cache_data.clear(); time.sleep(1); st.rerun()
-                else:
-                    c4.markdown('<div style="background-color: #0D2D0D; color:#4caf50; font-weight:bold; text-align:center; padding:5px; border-radius:5px; border:1px solid #4caf50;">✅ 一致</div>', unsafe_allow_html=True)
+        st.header("📁 許可下載區 (管理員保護模式)")
+        
+        # --- 密碼驗證區 ---
+        admin_pass_input = st.text_input("🔑 請輸入管理員密碼以存取檔案", type="password", key="lib_pwd")
+        # 優先讀取 secrets，沒有則預設為 dafeng888
+        correct_password = st.secrets.get("admin_pass", "dafeng888")
+
+        if admin_pass_input == correct_password:
+            st.success("✅ 認證成功，歡迎使用 AI 比對與修正功能")
             st.divider()
+            for idx, row in main_df.iterrows():
+                c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+                p_name, p_date, url = row.iloc[2], row.iloc[3], row.get("PDF連結", "")
+                c1.markdown(f"📄 **{p_name}**")
+                c2.write(f"📅 到期: {str(p_date)[:10] if pd.notnull(p_date) else '無'}")
+                if pd.notna(url) and str(url).strip().startswith("http"):
+                    is_match, pdf_dt, pdf_img = ai_verify_background(str(url).strip(), p_date)
+                    c3.link_button("📥 下載 PDF", str(url).strip())
+                    if not is_match:
+                        with c4: st.markdown(f'<div style="background-color: #4D0000; color:#ff4d4d; font-weight:bold; border:1px solid #ff4d4d; border-radius:5px; text-align:center; padding:5px;">⚠️ 異常: {pdf_dt}</div>', unsafe_allow_html=True)
+                        with st.expander(f"🛠️ 修正 {p_name}"):
+                            col_img, col_fix = st.columns([2, 1])
+                            if pdf_img: col_img.image(pdf_img, use_container_width=True)
+                            new_date = col_fix.date_input("正確到期日", value=p_date.date() if pd.notnull(p_date) else date.today(), key=f"fix_date_{idx}")
+                            if col_fix.button("確認修正", key=f"btn_confirm_{idx}", type="primary", use_container_width=True):
+                                main_df.loc[idx, main_df.columns[3]] = pd.to_datetime(new_date)
+                                conn.update(worksheet="大豐既有許可證到期提醒", data=main_df)
+                                st.success("已更新！"); st.cache_data.clear(); time.sleep(1); st.rerun()
+                    else:
+                        c4.markdown('<div style="background-color: #0D2D0D; color:#4caf50; font-weight:bold; text-align:center; padding:5px; border-radius:5px; border:1px solid #4caf50;">✅ 一致</div>', unsafe_allow_html=True)
+                st.divider()
+        elif admin_pass_input != "":
+            st.error("❌ 密碼錯誤，請重新輸入。")
+        else:
+            st.info("💡 為了確保許可證文件安全，此頁面需密碼解鎖。")
 
     elif st.session_state.mode == "management":
         st.sidebar.divider()
@@ -130,7 +143,6 @@ try:
             st.subheader("🛠️ 第一步：選擇辦理項目")
             action_cols = st.columns(len(options))
             for i, opt in enumerate(options):
-                # --- 這裡加上了唯一的 KEY，修復你的 Multiple Button 報錯 ---
                 if action_cols[i].button(opt, key=f"mgmt_btn_{i}", use_container_width=True, 
                                          type="primary" if opt in st.session_state.selected_actions else "secondary"):
                     if opt in st.session_state.selected_actions: st.session_state.selected_actions.remove(opt)
@@ -159,20 +171,4 @@ try:
                             
                             # 寄送郵件
                             subject = f"【許可證申請】{sel_name}_{user_name}_{datetime.now().strftime('%Y-%m-%d')}"
-                            body = f"Andy 您好，\n\n同仁 {user_name} 已提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(st.session_state.selected_actions)}"
-                            msg = MIMEText(body, 'plain', 'utf-8'); msg['Subject'] = Header(subject, 'utf-8')
-                            msg['From'] = st.secrets["email"]["sender"]; msg['To'] = st.secrets["email"]["receiver"]
-                            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-                                server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
-                                server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
-                            st.balloons(); st.success(f"✅ 申請成功並寄信給 Andy！"); st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
-                        except Exception as err: st.error(f"❌ 流程失敗：{err}")
-
-    st.divider()
-    with st.expander("📊 許可證總覽表", expanded=True):
-        display_df = main_df.copy()
-        display_df.iloc[:, 3] = display_df.iloc[:, 3].apply(lambda x: x.strftime('%Y-%m-%d') if pd.notnull(x) and hasattr(x, 'strftime') else "")
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-except Exception as e:
-    st.error(f"❌ 系統錯誤：{e}")
+                            body = f"Andy 您好，\n\n同仁 {user_name} 已
