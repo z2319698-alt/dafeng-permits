@@ -171,4 +171,20 @@ try:
                             
                             # 寄送郵件
                             subject = f"【許可證申請】{sel_name}_{user_name}_{datetime.now().strftime('%Y-%m-%d')}"
-                            body = f"Andy 您好，\n\n同仁 {user_name} 已
+                            body = f"Andy 您好，\n\n同仁 {user_name} 已提交申請。\n許可證：{sel_name}\n辦理項目：{', '.join(st.session_state.selected_actions)}"
+                            msg = MIMEText(body, 'plain', 'utf-8'); msg['Subject'] = Header(subject, 'utf-8')
+                            msg['From'] = st.secrets["email"]["sender"]; msg['To'] = st.secrets["email"]["receiver"]
+                            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+                                server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
+                                server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
+                            st.balloons(); st.success(f"✅ 申請成功並寄信給 Andy！"); st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
+                        except Exception as err: st.error(f"❌ 流程失敗：{err}")
+
+    st.divider()
+    with st.expander("📊 許可證總覽表", expanded=True):
+        display_df = main_df.copy()
+        display_df.iloc[:, 3] = display_df.iloc[:, 3].apply(lambda x: x.strftime('%Y-%m-%d') if pd.notnull(x) and hasattr(x, 'strftime') else "")
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+except Exception as e:
+    st.error(f"❌ 系統錯誤：{e}")
