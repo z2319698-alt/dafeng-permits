@@ -18,6 +18,34 @@ except ImportError:
 # 1. 頁面基礎設定
 st.set_page_config(page_title="大豐環保許可證管理系統", layout="wide")
 
+# 初始化 Session State (新增登入狀態追蹤)
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+# --- 新增：員工登入頁面邏輯 ---
+if not st.session_state.logged_in:
+    st.title("🔐 大豐環保許可證管理系統 - 員工登入")
+    
+    with st.form("login_form"):
+        st.markdown("### 👤 請輸入您的認證資訊")
+        emp_id = st.text_input("員工編號")
+        emp_pwd = st.text_input("登入密碼", type="password")
+        submit_login = st.form_submit_button("登入系統", use_container_width=True)
+        
+        if submit_login:
+            # 這裡可以根據需求修改驗證邏輯，或串接資料庫
+            # 目前示範：員編為 DF001, 密碼為 1234
+            if emp_id == "DF001" and emp_pwd == "1234":
+                st.session_state.logged_in = True
+                st.success("✅ 登入成功！正在跳轉...")
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error("❌ 員編或密碼錯誤，請重新輸入。")
+    st.stop() # 未登入前，強制停止執行後續程式碼
+
+# --- 以下為原本的系統內容，僅在登入後顯示 ---
+
 # CSS 樣式 (包含跑馬燈)
 st.markdown("""
     <style>
@@ -66,6 +94,11 @@ try:
     if st.sidebar.button("⚖️ 近期裁處案例", key="nav_case"): st.session_state.mode = "cases"; st.rerun()
     st.sidebar.divider()
     if st.sidebar.button("🔄 更新資料庫", key="nav_refresh"): st.cache_data.clear(); st.rerun()
+    
+    # 新增登出按鈕
+    if st.sidebar.button("🚪 登出系統"):
+        st.session_state.logged_in = False
+        st.rerun()
 
     # --- 頁面邏輯 ---
     if st.session_state.mode == "home":
@@ -78,14 +111,11 @@ try:
 
     elif st.session_state.mode == "library":
         st.header("📁 許可下載區 (管理員保護模式)")
-        
-        # --- 密碼驗證區 ---
         admin_pass_input = st.text_input("🔑 請輸入管理員密碼以存取檔案", type="password", key="lib_pwd")
-        # 優先讀取 secrets，沒有則預設為 dafeng888
         correct_password = st.secrets.get("admin_pass", "dafeng888")
 
         if admin_pass_input == correct_password:
-            st.success("✅ 認證成功，歡迎使用 AI 比對與修正功能")
+            st.success("✅ 認證成功")
             st.divider()
             for idx, row in main_df.iterrows():
                 c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
@@ -109,11 +139,12 @@ try:
                         c4.markdown('<div style="background-color: #0D2D0D; color:#4caf50; font-weight:bold; text-align:center; padding:5px; border-radius:5px; border:1px solid #4caf50;">✅ 一致</div>', unsafe_allow_html=True)
                 st.divider()
         elif admin_pass_input != "":
-            st.error("❌ 密碼錯誤，請重新輸入。")
+            st.error("❌ 密碼錯誤")
         else:
             st.info("💡 為了確保許可證文件安全，此頁面需密碼解鎖。")
 
     elif st.session_state.mode == "management":
+        # ... (中間管理頁面邏輯保持不變)
         st.sidebar.divider()
         sel_type = st.sidebar.selectbox("1. 選擇類型", sorted(main_df.iloc[:, 0].dropna().unique()))
         sub_main = main_df[main_df.iloc[:, 0] == sel_type].copy()
@@ -124,10 +155,10 @@ try:
         days_left = (target_main.iloc[3] - today).days
         r1_c1, r1_c2 = st.columns(2)
         with r1_c1:
-            if days_left < 0: st.error(f"❌ 【已經逾期】 過期 {abs(days_left)} 天")
-            elif days_left < 90: st.error(f"🚨 【嚴重警告】 剩餘 {days_left} 天")
-            elif days_left < 180: st.warning(f"⚠️ 【到期預警】 剩餘 {days_left} 天")
-            else: st.success(f"✅ 【狀態有效】 剩餘 {days_left} 天")
+            if days_left < 0: st.error(f"❌ 過期 {abs(days_left)} 天")
+            elif days_left < 90: st.error(f"🚨 剩餘 {days_left} 天")
+            elif days_left < 180: st.warning(f"⚠️ 剩餘 {days_left} 天")
+            else: st.success(f"✅ 剩餘 {days_left} 天")
         
         with r1_c2:
             adv_txt = "🔴 立即申請" if days_left < 90 else "🟡 準備附件" if days_left < 180 else "🟢 定期複核"
@@ -177,7 +208,7 @@ try:
                             with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
                                 server.login(st.secrets["email"]["sender"], st.secrets["email"]["password"])
                                 server.sendmail(st.secrets["email"]["sender"], [st.secrets["email"]["receiver"]], msg.as_string())
-                            st.balloons(); st.success(f"✅ 申請成功並寄信給 Andy！"); st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
+                            st.balloons(); st.success(f"✅ 申請成功！"); st.session_state.selected_actions = set(); time.sleep(2); st.rerun()
                         except Exception as err: st.error(f"❌ 流程失敗：{err}")
 
     st.divider()
